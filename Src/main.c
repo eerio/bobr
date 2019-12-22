@@ -6,12 +6,34 @@
   * @brief   Default main function.
   ******************************************************************************
 */
+#include<stm32l0xx.h>
+
+/* User LED: LD3 @ PB3 pin */
+#define LED_PORT (GPIOB)
+#define LED_PIN (3U)
+
+#define LED_ON (GPIOB->BSRR |= (1 << 3))
+#define LED_OFF (GPIOB->BRR |= (1 << 3))
 
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
   #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
 #endif
 
+void delay(volatile unsigned n)
+{
+	while(--n);
+}
+
 int main(void)
 {
-	for(;;);
+	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
+	GPIOB->MODER |= GPIO_MODER_MODE3_0;
+
+	for(;;)
+	{
+		LED_ON();
+		delay(100000);
+		LED_OFF();
+		delay(100000);
+	}
 }
