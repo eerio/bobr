@@ -70,7 +70,7 @@
   /* #define STM32L010x6 */   /*!< STM32L010C6 Devices                                                                                                                                   */
   /* #define STM32L010x8 */   /*!< STM32L010K8, STM32L010R8 Devices                                                                                                                      */
   /* #define STM32L010xB */   /*!< STM32L010RB Devices                                                                                                                                   */
-  /* #define STM32L011xx */   /*!< STM32L031C6, STM32L031E6, STM32L031F6, STM32L031G6, STM32L031K6 Devices                                                                               */
+  #define STM32L011xx   /*!< STM32L031C6, STM32L031E6, STM32L031F6, STM32L031G6, STM32L031K6 Devices                                                                               */
   /* #define STM32L021xx */   /*!< STM32L021D4, STM32L021F4, STM32L021G4, STM32L021K4 Devices                                                                                            */
   /* #define STM32L031xx */   /*!< STM32L031C6, STM32L031E6, STM32L031F6, STM32L031G6, STM32L031K6 Devices                                                                               */
   /* #define STM32L041xx */   /*!< STM32L041C6, STM32L041K6, STM32L041G6, STM32L041F6, STM32L041E6 Devices                                                                               */
