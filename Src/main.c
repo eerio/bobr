@@ -27,6 +27,7 @@ void delay(volatile unsigned n)
 int main(void)
 {
 	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
+	GPIOB->MODER &= ~(GPIO_MODER_MODE3);
 	GPIOB->MODER |= GPIO_MODER_MODE3_0;
 
 	for(;;)
