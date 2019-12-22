@@ -1,8 +1,9 @@
 # STM32CubeIDE
 Debug/
-.cproject
-*.launch
 .settings/
+*.launch
+.cproject
+.project
 
 # Prerequisites
 *.d
