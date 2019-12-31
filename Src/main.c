@@ -14,6 +14,7 @@
 
 #define LED_ON() (GPIOB->BSRR |= (1 << 3))
 #define LED_OFF() (GPIOB->BRR |= (1 << 3))
+#define LED_TOG() (GPIOB->ODR ^= (1 << 3))
 
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
   #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
@@ -24,17 +25,157 @@ void delay(volatile unsigned n)
 	while(--n);
 }
 
+void LPUART_config(void)
+{
+	/* TX: PA1 (AF6)
+	 * RX: PA0 (AF6)
+	 */
+	RCC->IOPENR |= RCC_IOPENR_IOPAEN;
+	GPIOA->MODER &= ~(GPIO_MODER_MODE0 | GPIO_MODER_MODE1);
+	GPIOA->MODER |= GPIO_MODER_MODE0_1 | GPIO_MODER_MODE1_1;
+    GPIOA->AFR[0] &= ~(GPIO_AFRL_AFSEL0 | GPIO_AFRL_AFSEL1);
+    GPIOA->AFR[0] |= (0x6) << GPIO_AFRL_AFSEL0_Pos;
+    GPIOA->AFR[0] |= (0x6) << GPIO_AFRL_AFSEL1_Pos;
+
+	/* Configuration:
+	 * Clock: HSI16 (1)
+	 * Word: 1-8-1
+	 * Baudrate: 1M
+	 * No parity bits
+	 * Mode: TX, RX
+	 * Swap TX and RX
+	 * No hardware control
+	 */
+    RCC->CR |= RCC_CR_HSION;
+    while ((RCC->CR & RCC_CR_HSIRDY) == 0)
+    {
+    	/* Add here timeout management */
+    }
+	RCC->CCIPR &= ~RCC_CCIPR_LPUART1SEL;  /* (1) */
+	RCC->CCIPR |= RCC_CCIPR_LPUART1SEL_1;
+	RCC->APB1ENR |= RCC_APB1ENR_LPUART1EN;
+
+	// LPUART1->CR1 &= ~LPUART_CR1_M;
+	LPUART1->CR2 |= USART_CR2_SWAP;
+	LPUART1->CR3 |= USART_CR3_OVRDIS;
+	uint32_t f_ck, baud;
+	f_ck = 16000000; // SystemCoreClock;
+	baud = 1000000;
+	LPUART1->BRR |= 256 * f_ck / baud;
+
+	LPUART1->CR1 |= USART_CR1_UE;
+	LPUART1->CR1 |= USART_CR1_RE;
+	LPUART1->CR1 |= USART_CR1_TE;
+
+	/* Clear Framing Error and Character Match flags */
+	LPUART1->ICR |= USART_ICR_FECF;
+	/* Poll idle frame transmission */
+	while ((LPUART1->ISR & USART_ISR_TC) == 0)
+	{
+		/* Add here timeout management */
+	}
+	/* Clear TC flag after idle frame transmission */
+    LPUART1->ICR |= USART_ICR_TCCF;
+}
+
+void send_char(uint8_t data) {
+    /* Wait till transmitter register's empty */
+    while ((LPUART1->ISR & USART_ISR_TXE) == 0) {}
+    /* Write byte */
+    LPUART1->TDR = data;
+    /* Wait till the transfer is finished */
+    while ((LPUART1->ISR & USART_ISR_TC) == 0) {}
+}
+
+
+void I2C_config(void)
+{
+	/* SCL: PB6 (AF1)
+	 * SDA: PB7 (AF1)
+	 */
+	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
+	GPIOB->MODER &= ~(GPIO_MODER_MODE6 | GPIO_MODER_MODE7);
+	GPIOB->MODER |= GPIO_MODER_MODE6_1 | GPIO_MODER_MODE7_1;
+    GPIOB->AFR[0] &= ~(GPIO_AFRL_AFSEL6 | GPIO_AFRL_AFSEL7);
+    GPIOB->AFR[0] |= (0x1) << GPIO_AFRL_AFSEL6_Pos;
+    GPIOB->AFR[0] |= (0x1) << GPIO_AFRL_AFSEL7_Pos;
+
+    GPIOB->OTYPER |= GPIO_OTYPER_OT_6 | GPIO_OTYPER_OT_7;
+    // GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR6 | GPIO_PUPDR_PUPDR7);
+    // GPIOB->PUPDR |= GPIO_PUPDR_PUPD6_0 | GPIO_PUPDR_PUPD7_0;
+
+	/* Configuration:
+	 * Mode: master
+	 * Freq.: 100 kHz
+	 * Source clock freq.: 16 MHz
+	 * Filters: analog ON, digital OFF
+	 * Rise time: 100ns
+	 * Fall time: 10ns
+	 * Addressing: 7 bit
+	 *
+	 * Source clock: HSI16
+	 */
+    RCC->CR |= RCC_CR_HSION;
+    while ((RCC->CR & RCC_CR_HSIRDY) == 0)
+    {
+    	/* Add here timeout management */
+    }
+
+	RCC->CCIPR &= ~RCC_CCIPR_I2C1SEL;  /* (1) */
+	RCC->CCIPR |= RCC_CCIPR_I2C1SEL_1;
+	RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
+
+	I2C1->TIMINGR |= 0x00503D5A;
+	I2C1->CR2 |= I2C_CR2_RELOAD;
+	I2C1->CR2 |= 0xFF << I2C_CR2_NBYTES_Pos;
+
+	I2C1->CR2 |= 0xA5 << 1;
+
+    I2C1->OAR1 |= (uint32_t)(0x69 << 1);
+    I2C1->OAR1 |= I2C_OAR1_OA1EN;
+
+	I2C1->CR1 |= I2C_CR1_PE;
+}
+
+void i2c_read_byte(uint8_t *buf)
+{
+	I2C1->CR2 &= ~I2C_CR2_START;
+	I2C1->CR2 |= I2C_CR2_RD_WRN;
+	I2C1->CR2 |= I2C_CR2_START;
+
+	while ((I2C1->ISR & I2C_ISR_RXNE) == 0);
+	*buf = I2C1->RXDR;
+}
+
+void i2c_write_byte(uint8_t buf)
+{
+	I2C1->CR2 &= ~I2C_CR2_START;
+	I2C1->CR2 &= ~I2C_CR2_RD_WRN;
+	I2C1->CR2 |= I2C_CR2_START;
+
+	while ((I2C1->ISR & I2C_ISR_TXE) == 0);
+	I2C1->TXDR = buf;
+}
+
 int main(void)
 {
 	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
 	GPIOB->MODER &= ~(GPIO_MODER_MODE3);
 	GPIOB->MODER |= GPIO_MODER_MODE3_0;
 
+	LPUART_config();
+	I2C_config();
+
+	uint8_t buf=0;
+
+	//i2c_write_byte('A');
+
 	for(;;)
 	{
-		LED_ON();
-		delay(100000);
-		LED_OFF();
-		delay(100000);
+		// send_char('A');
+		i2c_read_byte(&buf);
+		i2c_write_byte('A');
+		//LED_TOG();
+		//delay(1000);
 	}
 }
