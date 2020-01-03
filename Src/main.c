@@ -135,6 +135,7 @@ void I2C_config(void)
 
 	I2C1->CR1 |= I2C_CR1_PE;
 }
+
 /*
 void i2c_read_byte(uint8_t *buf)
 {
@@ -169,6 +170,27 @@ void i2c_read_byte(uint8_t *buf, uint8_t count)
 	I2C1->ICR |= I2C_ICR_STOPCF;
 }
 
+void i2c_write_byte(uint8_t *buf, uint8_t count)
+{
+	uint8_t addr = 0xEA >> 1;
+	I2C1->CR2 = 0;
+	while (I2C1->ISR & I2C_ISR_BUSY);
+	I2C1->CR2 |= (count << I2C_CR2_NBYTES_Pos) | (addr << 1);
+	I2C1->CR2 |= I2C_CR2_START;
+
+	for (int i=0; i < count; ++i)
+	{
+		while ((I2C1->ISR & I2C_ISR_TXE) == 0);
+		I2C1->TXDR = *buf++;
+	}
+
+	while ((I2C1->ISR & I2C_ISR_TC) == 0);
+	I2C1->CR2 |= I2C_CR2_STOP;
+	while (I2C1->ISR & I2C_ISR_BUSY);
+	I2C1->ICR |= I2C_ICR_STOPCF;
+}
+
+/*
 void i2c_write_byte(uint8_t buf)
 {
 	//while (I2C1->ISR & I2C_ISR_BUSY);
@@ -189,7 +211,7 @@ void i2c_write_byte(uint8_t buf)
 	while ((I2C1->ISR & I2C_ISR_TC) == 0);
 	//while ((I2C1->ISR & I2C_ISR_STOPF) == 0);
 }
-
+*/
 
 void ADC_config(void)
 {
@@ -228,7 +250,7 @@ int main(void)
 	I2C_config();
 	//ADC_config();
 
-	uint8_t buf=0;
+	uint8_t buf[] = "Pawel";
 
 	//i2c_write_byte('A');
 
@@ -237,9 +259,9 @@ int main(void)
 		//if (ADC1->DR > 2482) LED_ON();
 		//else LED_OFF();
 		// send_char('A');
-		i2c_read_byte(&buf, 6);
+		//i2c_read_byte(buf, 6);
 		//for (int i=0; i < 4; ++i) i2c_read_byte(&buf);
-		//i2c_write_byte('A');
+		i2c_write_byte(buf, 6);
 		LED_ON();
 		delay(50000);
 		LED_OFF();
