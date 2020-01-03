@@ -126,45 +126,107 @@ void I2C_config(void)
 	RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
 
 	I2C1->TIMINGR |= 0x00503D5A;
-	I2C1->CR2 |= I2C_CR2_RELOAD;
-	I2C1->CR2 |= 0xFF << I2C_CR2_NBYTES_Pos;
+	//I2C1->CR2 |= I2C_CR2_RELOAD;
 
-	I2C1->CR2 |= 0xA5 << 1;
+	//I2C1->CR2 |= 0xA5;// << 1;
 
-    I2C1->OAR1 |= (uint32_t)(0x69 << 1);
-    I2C1->OAR1 |= I2C_OAR1_OA1EN;
+    //I2C1->OAR1 |= (uint32_t)(0x69 << 1);
+    //I2C1->OAR1 |= I2C_OAR1_OA1EN;
 
 	I2C1->CR1 |= I2C_CR1_PE;
 }
-
+/*
 void i2c_read_byte(uint8_t *buf)
 {
+	while (I2C1->ISR & I2C_ISR_BUSY);
 	I2C1->CR2 &= ~I2C_CR2_START;
 	I2C1->CR2 |= I2C_CR2_RD_WRN;
-	I2C1->CR2 |= I2C_CR2_START;
+	I2C1->CR2 |= (1U << I2C_CR2_NBYTES_Pos);
+	I2C1->CR2 |= I2C_CR2_AUTOEND | I2C_CR2_START;
 
 	while ((I2C1->ISR & I2C_ISR_RXNE) == 0);
 	*buf = I2C1->RXDR;
+	//while ((I2C1->ISR & I2C_ISR_TCR) == 0);
+	while ((I2C1->ISR & I2C_ISR_TC) == 0);
+}
+*/
+
+void i2c_read_byte(uint8_t *buf, uint8_t count)
+{
+	uint8_t addr = 0xEA >> 1;
+	I2C1->CR2 = 0;
+	while (I2C1->ISR & I2C_ISR_BUSY);
+	I2C1->CR2 |= (count << I2C_CR2_NBYTES_Pos) | (addr << 1) | I2C_CR2_RD_WRN;
+	I2C1->CR2 |= I2C_CR2_START;
+	for (int i=0; i < count; ++i)
+	{
+		while ((I2C1->ISR & I2C_ISR_RXNE) == 0);
+		*buf++ = I2C1->RXDR;
+	}
+	while ((I2C1->ISR & I2C_ISR_TC) == 0);
+	I2C1->CR2 |= I2C_CR2_STOP;
+	while (I2C1->ISR & I2C_ISR_BUSY);
+	I2C1->ICR |= I2C_ICR_STOPCF;
 }
 
 void i2c_write_byte(uint8_t buf)
 {
+	//while (I2C1->ISR & I2C_ISR_BUSY);
+
+	//if (I2C1->ISR & I2C_ISR_ADDR) I2C1->ICR |= I2C_ICR_ADDRCF;
 	I2C1->CR2 &= ~I2C_CR2_START;
 	I2C1->CR2 &= ~I2C_CR2_RD_WRN;
+
+	I2C1->CR2 |= (1U << I2C_CR2_NBYTES_Pos);
 	I2C1->CR2 |= I2C_CR2_START;
+
+
+	//while ((I2C1->ISR & I2C_ISR_TXIS) == 0);
 
 	while ((I2C1->ISR & I2C_ISR_TXE) == 0);
 	I2C1->TXDR = buf;
+
+	while ((I2C1->ISR & I2C_ISR_TC) == 0);
+	//while ((I2C1->ISR & I2C_ISR_STOPF) == 0);
 }
+
+
+void ADC_config(void)
+{
+	RCC->IOPENR |= RCC_IOPENR_IOPAEN;
+	GPIOA->MODER |= GPIO_MODER_MODE0;
+
+	RCC->APB2ENR |= RCC_APB2ENR_ADCEN;
+	ADC1->CHSELR |= ADC_CHSELR_CHSEL0;
+
+	ADC1->CFGR1 |= ADC_CFGR1_CONT;
+	ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;
+	//ADC1->CR |= ADC_CR_ADEN;
+	//while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {}
+	ADC1->CR |= ADC_CR_ADCAL;
+	while (ADC1->CR & ADC_CR_ADCAL);
+
+	ADC1->CR |= ADC_CR_ADEN;
+	if (ADC1->ISR & ADC_ISR_ADRDY) {
+	    ADC1->ISR |= ADC_ISR_ADRDY;
+	}
+    ADC1->CR |= ADC_CR_ADSTART;
+    ADC->CCR |= ADC_CCR_VREFEN;
+    while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {}
+}
+
+
 
 int main(void)
 {
 	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
 	GPIOB->MODER &= ~(GPIO_MODER_MODE3);
 	GPIOB->MODER |= GPIO_MODER_MODE3_0;
+	LED_ON();
 
 	LPUART_config();
 	I2C_config();
+	//ADC_config();
 
 	uint8_t buf=0;
 
@@ -172,10 +234,17 @@ int main(void)
 
 	for(;;)
 	{
+		//if (ADC1->DR > 2482) LED_ON();
+		//else LED_OFF();
 		// send_char('A');
-		i2c_read_byte(&buf);
-		i2c_write_byte('A');
+		i2c_read_byte(&buf, 6);
+		//for (int i=0; i < 4; ++i) i2c_read_byte(&buf);
+		//i2c_write_byte('A');
+		LED_ON();
+		delay(50000);
+		LED_OFF();
+		delay(50000);
 		//LED_TOG();
-		//delay(1000);
+		//delay(100);
 	}
 }
