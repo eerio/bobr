@@ -19,6 +19,21 @@
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
   #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
 #endif
+/*
+typedef struct Queue {
+	uint8_t *buffer;
+	unsigned int capacity;
+	uint8_t *head;
+	uint8_t *tail;
+};
+*/
+volatile uint8_t rx_buffer[8];
+volatile uint8_t tx_buffer[8];
+const unsigned int rx_buffer_size=sizeof(rx_buffer) / sizeof(uint8_t);
+const unsigned int tx_buffer_size=sizeof(rx_buffer) / sizeof(uint8_t);
+//volatile uint8_t lpuart1_buf[1024]={0};
+//volatile uint8_t lpuart1_count=0;
+//volatile uint8_t lpuart1_buf_not_empty=0;
 
 void delay(volatile unsigned n)
 {
@@ -59,7 +74,8 @@ void LPUART1_Init(void)
 	f_ck = 16000000; // SystemCoreClock;
 	baud = 1000000;
 	LPUART1->BRR |= 256 * f_ck / baud;
-
+	//LPUART1->CR1 |= USART_CR1_RXNEIE;
+	LPUART1->CR3 |= USART_CR3_DMAR;//USART_CR3_DMAT | USART_CR3_DMAR;
 	LPUART1->CR1 |= USART_CR1_UE;
 	LPUART1->CR1 |= USART_CR1_RE;
 	LPUART1->CR1 |= USART_CR1_TE;
@@ -70,18 +86,66 @@ void LPUART1_Init(void)
 	while ((LPUART1->ISR & USART_ISR_TC) == 0);
 	/* Clear TC flag after idle frame transmission */
     LPUART1->ICR |= USART_ICR_TCCF;
+
+    NVIC_EnableIRQ(LPUART1_IRQn);
+    NVIC_SetPriority(LPUART1_IRQn, 0);
 }
 
-void USART_Transmit(USART_TypeDef *USART, uint8_t *buf, uint8_t count)
+void DMA_Init(void)
+{
+	/* Errata: DMA channel 5 cannot be used for LPUART1 data reception
+	 * Workaround: Use channel 3
+	 */
+	RCC->AHBENR |= RCC_AHBENR_DMA1EN;
+	DMA1_CSELR->CSELR &= ~(DMA_CSELR_C2S | DMA_CSELR_C3S);
+	DMA1_CSELR->CSELR |= ((0b0101 << DMA_CSELR_C2S_Pos) | (0b0101 << DMA_CSELR_C3S_Pos));
+
+	/* Peripheral addresses: RDR / TDR registers of LPUART1 */
+	DMA1_Channel2->CPAR = (uint32_t)(&LPUART1->TDR);
+	DMA1_Channel3->CPAR = (uint32_t)(&LPUART1->RDR);
+	/* Memory addresses: buffers */
+	DMA1_Channel2->CMAR = (uint32_t)(tx_buffer);
+	DMA1_Channel3->CMAR = (uint32_t)(rx_buffer);
+	/* Not to cause a buffer overflow, set CNDTR to buffers' sizes */
+	DMA1_Channel2->CNDTR |= (tx_buffer_size << DMA_CNDTR_NDT_Pos);
+	DMA1_Channel3->CNDTR |= (rx_buffer_size << DMA_CNDTR_NDT_Pos);
+	/* Increment memory address */
+	DMA1_Channel2->CCR |= DMA_CCR_MINC;
+	DMA1_Channel3->CCR |= DMA_CCR_MINC;
+	/* Circular mode */
+	DMA1_Channel2->CCR |= DMA_CCR_CIRC;
+	DMA1_Channel3->CCR |= DMA_CCR_CIRC;
+	/* Transfer direction: mem to periph for TX, periph to mem for RX */
+	DMA1_Channel2->CCR |= DMA_CCR_DIR;
+	DMA1_Channel3->CCR &= ~DMA_CCR_DIR;
+	/* Enable channels */
+	DMA1_Channel2->CCR |= DMA_CCR_EN;
+	DMA1_Channel3->CCR |= DMA_CCR_EN;
+}
+
+void USART_Transmit(USART_TypeDef *USART, const uint8_t *buf, uint8_t count)
 {
 	for (int i=0; i < count; ++i)
 	{
 	    /* Wait till transmitter register's empty */
-	    while ((USART->ISR & USART_ISR_TXE) == 0) {}
+	    while ((USART->ISR & USART_ISR_TXE) == 0);
 	    /* Write byte */
 	    USART->TDR = buf[i];
 	}
 }
+
+/*
+void USART_Receive(USART_TypeDef *USART, uint8_t *buf, uint8_t count)
+{
+	for (int i=0; i < count; ++i)
+	{
+		// Wait till data received
+		while ((USART->ISR & USART_ISR_RXNE) == 0);
+		// Read byte
+		buf[i] = USART->RDR;
+	}
+}
+*/
 
 void I2C1_Init(void)
 {
@@ -134,7 +198,6 @@ void I2C1_Init(void)
 	I2C1->CR1 |= I2C_CR1_PE;
 }
 
-
 void I2C_Master_Receive(
 		I2C_TypeDef *I2C,
 		uint8_t slave_addr,
@@ -163,7 +226,7 @@ void I2C_Master_Receive(
 void I2C_Master_Transmit(
 		I2C_TypeDef *I2C,
 		uint8_t slave_addr,
-		uint8_t *buf,
+		const uint8_t *buf,
 		uint8_t count
 )
 {
@@ -210,8 +273,15 @@ void ADC_config(void)
     while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {}
 }
 
-void AES_RNG_LPUART1_IRQHandler(void)
+
+void USART_Receive (
+		USART_TypeDef *USART,
+		uint8_t *is_empty_flag,
+		uint8_t *dest,
+		uint8_t *src,
+		uint8_t count)
 {
+
 
 }
 
@@ -228,32 +298,37 @@ int main(void)
 	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
 	GPIOB->MODER &= ~(GPIO_MODER_MODE3);
 	GPIOB->MODER |= GPIO_MODER_MODE3_0;
-	//LED_ON();
 
 	LPUART1_Init();
 	I2C1_Init();
-	//ADC_config();
+	DMA_Init();
 
-	uint8_t buf[] = "Pawel";
-
-	//i2c_write_byte('A');
-
+	uint8_t buf[8] = "chujnia";
 	uint8_t slave = 0x75;
-	for(;;)
+
+	while (1)
 	{
-		//if (ADC1->DR > 2482) LED_ON();
-		//else LED_OFF();
-		//send_char('A');
-		USART_Transmit(LPUART1, "chujnia", 8);
-		//I2C_Master_Receive(I2C1, 0x75, buf, 6);
-		//for (int i=0; i < 4; ++i) i2c_read_byte(&buf);
-		// I2C_Master_Transmit(I2C1, slave, buf, 6);
-		I2C_Master_Receive(I2C1, slave, buf, 6);
+		USART_Transmit(LPUART1, buf, 8);
+		while (rx_buffer[0] != 'C');
+		//LED_ON();
+		//delay(50000);
+		//USART_Receive(LPUART1, buf, 8);
+		//LED_OFF();
+		//while((LPUART1->ISR & USART_ISR_TC));
+		//while((LPUART1->ISR & USART_ISR_TC) == 0);
+		//delay(15000);
+		I2C_Master_Transmit(I2C1, slave, rx_buffer, 8);
+		I2C_Master_Receive(I2C1, slave, buf, 8);
+
 		LED_ON();
 		delay(50000);
 		LED_OFF();
 		delay(50000);
-		//LED_TOG();
-		//delay(100);
 	}
+}
+
+void LPUART1_IRQHandler(void)
+{
+	LED_ON();
+	while(1);
 }
