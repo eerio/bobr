@@ -4,6 +4,13 @@
 #define LED_PORT (GPIOB)
 #define LED_PIN (3U)
 
+#define blinked(x) \
+	{ \
+		LED_ON();\
+		delay(100000);\
+		x;\
+		LED_OFF();\
+	}
 #define LED_ON() (GPIOB->BSRR |= (1 << 3))
 #define LED_OFF() (GPIOB->BRR |= (1 << 3))
 #define LED_TOG() (GPIOB->ODR ^= (1 << 3))
@@ -358,7 +365,7 @@ int main(void)
 
 	while (1)
 	{
-		LPUART1_Transmit_Receive(buf, buf, 8, 8);
+		blinked(LPUART1_Transmit_Receive(buf, buf, 8, 8));
 		I2C_Master_Transmit(I2C1, slave, buf, 8);
 		I2C_Master_Receive(I2C1, slave, buf, 8);
 	}
