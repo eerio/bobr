@@ -12,6 +12,8 @@
   #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
 #endif
 
+#define _DEBUG (1U)
+
 volatile int done=0;
 
 void delay(volatile unsigned n)
@@ -118,14 +120,16 @@ void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_t
 
 void I2C1_Init(void)
 {
-	/*  //SCL: PB6 (AF1)
-	 *  //SDA: PB7 (AF1)
-	 * SCL: PA9 (AF1)
-	 * SDA: PA10 (AF1)
+	/*
+	 * Pins:
+	 * 		in debug mode:	SCL: PB6 (AF1)
+	 * 						SDA: PB7 (AF1)
+	 * 		otherwise: 		SCL: PA9 (AF1)
+	 * 						SDA: PA10 (AF1)
 	 */
 
 	/* Sequence: RM p. 216 */
-	/*
+#if defined(_DEBUG)
 	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
 	GPIOB->MODER &= ~(GPIO_MODER_MODE6 | GPIO_MODER_MODE7);
 	GPIOB->MODER |= GPIO_MODER_MODE6_1 | GPIO_MODER_MODE7_1;
@@ -133,9 +137,7 @@ void I2C1_Init(void)
     GPIOB->AFR[0] |= (0x1) << GPIO_AFRL_AFSEL6_Pos;
     GPIOB->AFR[0] |= (0x1) << GPIO_AFRL_AFSEL7_Pos;
     GPIOB->OTYPER |= GPIO_OTYPER_OT_6 | GPIO_OTYPER_OT_7;
-    // GPIOB->PUPDR &= ~(GPIO_PUPDR_PUPDR6 | GPIO_PUPDR_PUPDR7);
-    // GPIOB->PUPDR |= GPIO_PUPDR_PUPD6_0 | GPIO_PUPDR_PUPD7_0;
-     */
+#else
 	RCC->IOPENR |= RCC_IOPENR_IOPAEN;
 	GPIOA->MODER &= ~(GPIO_MODER_MODE9 | GPIO_MODER_MODE10);
 	GPIOA->MODER |= GPIO_MODER_MODE9_1 | GPIO_MODER_MODE10_1;
@@ -143,6 +145,8 @@ void I2C1_Init(void)
 	GPIOA->AFR[1] |= (0x1) << GPIO_AFRH_AFSEL9_Pos;
 	GPIOA->AFR[1] |= (0x1) << GPIO_AFRH_AFSEL10_Pos;
 	GPIOA->OTYPER |= GPIO_OTYPER_OT_9 | GPIO_OTYPER_OT_10;
+#endif // defined(_DEBUG)
+
 	/* Configuration:
 	 * Mode: master
 	 * Freq.: 100 kHz
@@ -303,11 +307,9 @@ void BQ_Init(void)
 	uint8_t adc_go[] = {0xD0, 0x01, 0x06, 0x81, 0xAA, 0xE4};
 
 	// Send wake tone
-	//GPIOB->BRR |= (1 << 3);
 	GPIOC->BRR |= (1 << 15);
 	delay(small_del);
 	GPIOC->BSRR |= (1 << 15);
-	//GPIOB->BSRR |= (1 << 3);
 
 	// Send init seq
 	delay(big_del);
@@ -344,13 +346,15 @@ int main(void)
 	LPUART1_Init();
 	I2C1_Init();
 	DMA_Init();
+
+#if !defined(_DEBUG)
 	BQ_Init();
 	LTC_Init();
-
 	while(1);
+#endif
 
 	uint8_t buf[8]="chujnia";
-	uint8_t slave = 100;
+	uint8_t slave=100;
 
 	while (1)
 	{
