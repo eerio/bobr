@@ -7,9 +7,10 @@
 #define blinked(x) \
 	{ \
 		LED_ON();\
-		delay(100000);\
+		delay(30000);\
 		x;\
 		LED_OFF();\
+		delay(30000);\
 	}
 #define LED_ON() (GPIOB->BSRR |= (1 << 3))
 #define LED_OFF() (GPIOB->BRR |= (1 << 3))
@@ -22,6 +23,19 @@
 #define _DEBUG (1U)
 
 volatile int done=0;
+
+#define RX_CAP (64U)
+
+volatile uint8_t q_buffer[RX_CAP];
+volatile int q_front=0,
+		q_back=0,
+		new_q_back=0,
+		last_transfer=0,
+		q_size=0,
+		q_overflow=0,
+		q_cap=RX_CAP;
+
+
 
 void delay(volatile unsigned n)
 {
@@ -80,7 +94,7 @@ void LPUART1_Init(void)
 }
 
 
-void DMA_Init(void)
+void DMA_Init(volatile uint8_t receiver_buf[])
 {
 	/* Errata: DMA channel 5 cannot be used for LPUART1 data reception
 	 * Workaround: Use channel 3
@@ -92,6 +106,7 @@ void DMA_Init(void)
 	/* Peripheral addresses: RDR, TDR registers of LPUART1 */
 	DMA1_Channel2->CPAR = (uint32_t)(&LPUART1->TDR);
 	DMA1_Channel3->CPAR = (uint32_t)(&LPUART1->RDR);
+	DMA1_Channel3->CMAR = (uint32_t)(receiver_buf);
 	/* Increment memory address */
 	DMA1_Channel2->CCR |= DMA_CCR_MINC;
 	DMA1_Channel3->CCR |= DMA_CCR_MINC;
@@ -104,25 +119,54 @@ void DMA_Init(void)
 	DMA1_Channel3->CCR |= DMA_CCR_TCIE;
 	NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
 	NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0);
+
+	/* Enable the receiver */
+	DMA1_Channel3->CNDTR = 8;//(uint16_t)q_cap;
+	new_q_back = 8-1;//q_cap-1;
+	last_transfer=8;//q_cap;
+	DMA1_Channel3->CCR |= DMA_CCR_EN;
+}
+
+int q_is_full(void)
+{
+	return q_size == q_cap;
+}
+
+int q_is_empty(void)
+{
+	return q_size == 0;
+}
+
+void dequeue(uint8_t *dest)
+{
+	while(q_is_empty());
+	*dest = q_buffer[q_front];
+	q_front = (q_front + 1) % q_cap;
+	q_size--;
 }
 
 
 void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_transmit, uint8_t count_receive)
 {
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
-	DMA1_Channel3->CCR &= ~DMA_CCR_EN;
+	// DMA1_Channel3->CCR &= ~DMA_CCR_EN;
 
 	DMA1_Channel2->CMAR = (uint32_t)src;
-	DMA1_Channel3->CMAR = (uint32_t)dest;
+	// DMA1_Channel3->CMAR = (uint32_t)dest;
 	DMA1_Channel2->CNDTR = count_transmit;
-	if (count_receive > 0) DMA1_Channel3->CNDTR = count_receive;
+	// if (count_receive > 0) DMA1_Channel3->CNDTR = count_receive;
 
 	done = 0;
 	DMA1_Channel2->CCR |= DMA_CCR_EN;
-	if (count_receive > 0) DMA1_Channel3->CCR |= DMA_CCR_EN;
+	// if (count_receive > 0) DMA1_Channel3->CCR |= DMA_CCR_EN;
 	while(!done);
-	done=0;
-	if (count_receive > 0) while(!done);
+	// done=0;
+	// if (count_receive > 0) while(!done);
+
+	for (int i=0; i < count_receive; ++i)
+	{
+		dequeue(dest);
+	}
 }
 
 void I2C1_Init(void)
@@ -352,7 +396,7 @@ int main(void)
 
 	LPUART1_Init();
 	I2C1_Init();
-	DMA_Init();
+	DMA_Init(q_buffer);
 
 #if !defined(_DEBUG)
 	BQ_Init();
@@ -365,7 +409,9 @@ int main(void)
 
 	while (1)
 	{
-		blinked(LPUART1_Transmit_Receive(buf, buf, 8, 8));
+		//blinked(
+				LPUART1_Transmit_Receive(buf, buf, 8, 8);
+			//	);
 		I2C_Master_Transmit(I2C1, slave, buf, 8);
 		I2C_Master_Receive(I2C1, slave, buf, 8);
 	}
@@ -376,8 +422,46 @@ void DMA1_Channel2_3_IRQHandler(void)
 {
 	if (DMA1->ISR & DMA_ISR_TCIF3)
 	{
-		done = 1;
+		DMA1_Channel3->CCR &= ~DMA_CCR_EN;
+		int cap;
+
+		q_back = new_q_back;
+		q_size += last_transfer;
+
+		if (q_is_full())
+		{
+			q_overflow = 1;
+			DMA1->IFCR |= DMA_IFCR_CTCIF3;
+			return;
+		}
+
+		if (q_back >= q_front)
+		{
+			cap = q_cap - q_back - 1;
+			if (cap == 0) // gotta rewind
+			{
+				DMA1_Channel3->CMAR = (uint32_t)q_buffer; // cmar = [0];
+				DMA1_Channel3->CNDTR = q_front; // cndtr = q_front;
+				last_transfer = q_front;
+			}
+			else
+			{
+				DMA1_Channel3->CMAR = (uint32_t)(&q_buffer[q_back + 1]);
+				DMA1_Channel3->CNDTR = cap;
+				last_transfer = cap;
+			}
+		}
+		else
+		{
+			cap = q_front - q_back - 1;
+			DMA1_Channel3->CMAR = (uint32_t)(&q_buffer[q_back + 1]);
+			DMA1_Channel3->CNDTR = cap;
+			last_transfer = cap;
+		}
+
 		DMA1->IFCR |= DMA_IFCR_CTCIF3;
+		DMA1_Channel3->CCR |= DMA_CCR_EN;
+
 	}
 	else if (DMA1->ISR & DMA_ISR_TCIF2)
 	{
