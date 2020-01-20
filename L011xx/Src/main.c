@@ -79,9 +79,9 @@ void LPUART1_Init(void)
 	LPUART1->BRR |= 256 * f_ck / baud;
 
 	LPUART1->CR3 |= USART_CR3_DMAR | USART_CR3_DMAT;
-	//LPUART1->CR1 |= USART_CR1_TXEIE;//IDLEIE;
-    //NVIC_EnableIRQ(LPUART1_IRQn)
-    //NVIC_SetPriority(LPUART1_IRQn, 0);
+	LPUART1->CR1 |= USART_CR1_TXEIE;//IDLEIE;
+    NVIC_EnableIRQ(LPUART1_IRQn);
+    NVIC_SetPriority(LPUART1_IRQn, 0);
 
 	LPUART1->CR1 |= USART_CR1_UE;
 	LPUART1->CR1 |= USART_CR1_RE;
@@ -403,6 +403,8 @@ int main(void)
 	I2C1_Init();
 	DMA_Init(q_buffer);
 
+	while(1) blinked(0);
+
 #if !defined(_DEBUG)
 	BQ_Init();
 	LTC_Init();
@@ -422,11 +424,10 @@ int main(void)
 	}
 }
 
-void LPUART1_IRQHandler(void)
+void AES_RNG_LPUART1_IRQHandler(void)
 {
-	LED_ON();
 	blinked(0);
-	NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
+	// NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
 	LPUART1->ICR |= USART_ICR_IDLECF;
 }
 
