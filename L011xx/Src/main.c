@@ -77,7 +77,12 @@ void LPUART1_Init(void)
 	f_ck = 16000000; // SystemCoreClock;
 	baud = 1000000;
 	LPUART1->BRR |= 256 * f_ck / baud;
+
 	LPUART1->CR3 |= USART_CR3_DMAR | USART_CR3_DMAT;
+	//LPUART1->CR1 |= USART_CR1_TXEIE;//IDLEIE;
+    //NVIC_EnableIRQ(LPUART1_IRQn)
+    //NVIC_SetPriority(LPUART1_IRQn, 0);
+
 	LPUART1->CR1 |= USART_CR1_UE;
 	LPUART1->CR1 |= USART_CR1_RE;
 	LPUART1->CR1 |= USART_CR1_TE;
@@ -417,6 +422,13 @@ int main(void)
 	}
 }
 
+void LPUART1_IRQHandler(void)
+{
+	LED_ON();
+	blinked(0);
+	NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
+	LPUART1->ICR |= USART_ICR_IDLECF;
+}
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
