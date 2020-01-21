@@ -1,0 +1,4 @@
+target remote localhost:3333
+file bobr-k4.elf
+monitor program bobr-k4.bin 0x08000000 verify reset
+monitor reset halt
