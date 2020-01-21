@@ -22,6 +22,7 @@
 
 #define _DEBUG (1U)
 
+volatile int dma_stop=0;
 volatile int done=0;
 
 #define RX_CAP (64U)
@@ -79,9 +80,7 @@ void LPUART1_Init(void)
 	LPUART1->BRR |= 256 * f_ck / baud;
 
 	LPUART1->CR3 |= USART_CR3_DMAR | USART_CR3_DMAT;
-	LPUART1->CR1 |= USART_CR1_TXEIE;//IDLEIE;
-    NVIC_EnableIRQ(LPUART1_IRQn);
-    NVIC_SetPriority(LPUART1_IRQn, 0);
+	LPUART1->CR1 |= USART_CR1_RXNEIE;
 
 	LPUART1->CR1 |= USART_CR1_UE;
 	LPUART1->CR1 |= USART_CR1_RE;
@@ -126,9 +125,9 @@ void DMA_Init(volatile uint8_t receiver_buf[])
 	NVIC_SetPriority(DMA1_Channel2_3_IRQn, 0);
 
 	/* Enable the receiver */
-	DMA1_Channel3->CNDTR = 8;//(uint16_t)q_cap;
-	new_q_back = 8-1;//q_cap-1;
-	last_transfer=8;//q_cap;
+	DMA1_Channel3->CNDTR = (uint16_t)q_cap;
+	new_q_back = q_cap-1;
+	last_transfer = q_cap;
 	DMA1_Channel3->CCR |= DMA_CCR_EN;
 }
 
@@ -399,11 +398,9 @@ int main(void)
 	GPIOB->MODER &= ~(GPIO_MODER_MODE3);
 	GPIOB->MODER |= GPIO_MODER_MODE3_0;
 
-	LPUART1_Init();
 	I2C1_Init();
 	DMA_Init(q_buffer);
-
-	while(1) blinked(0);
+	LPUART1_Init();
 
 #if !defined(_DEBUG)
 	BQ_Init();
@@ -416,9 +413,7 @@ int main(void)
 
 	while (1)
 	{
-		//blinked(
-				LPUART1_Transmit_Receive(buf, buf, 8, 8);
-			//	);
+		LPUART1_Transmit_Receive(buf, buf, 8, 8);
 		I2C_Master_Transmit(I2C1, slave, buf, 8);
 		I2C_Master_Receive(I2C1, slave, buf, 8);
 	}
@@ -426,20 +421,31 @@ int main(void)
 
 void AES_RNG_LPUART1_IRQHandler(void)
 {
-	blinked(0);
-	// NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
-	LPUART1->ICR |= USART_ICR_IDLECF;
+	if (LPUART1->ISR & USART_ISR_RXNE) {
+		LPUART1->CR1 |= USART_CR1_IDLEIE;
+		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
+	}
+	else if (LPUART1->ISR & USART_ISR_IDLE)
+	{
+		//LPUART1->ICR |= USART_ICR_IDLECF;
+		LPUART1->CR1 &= ~USART_CR1_IDLEIE;
+		dma_stop = 1;
+		NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
+	}
 }
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
-	if (DMA1->ISR & DMA_ISR_TCIF3)
+	if (DMA1->ISR & DMA_ISR_TCIF3 || dma_stop)
 	{
+		dma_stop = 0;
+
 		DMA1_Channel3->CCR &= ~DMA_CCR_EN;
 		int cap;
-
-		q_back = new_q_back;
-		q_size += last_transfer;
+		int left = DMA1_Channel3->CNDTR;
+		q_back = new_q_back - left;
+		if (q_back < 0) q_back = q_cap - q_back;
+		q_size += last_transfer - left;
 
 		if (q_is_full())
 		{
@@ -472,6 +478,7 @@ void DMA1_Channel2_3_IRQHandler(void)
 			last_transfer = cap;
 		}
 
+		LPUART1->CR1 |= USART_CR1_RXNEIE;
 		DMA1->IFCR |= DMA_IFCR_CTCIF3;
 		DMA1_Channel3->CCR |= DMA_CCR_EN;
 
