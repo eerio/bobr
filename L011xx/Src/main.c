@@ -421,6 +421,10 @@ int main(void)
 
 void AES_RNG_LPUART1_IRQHandler(void)
 {
+	if (LPUART1->ISR & USART_ISR_RXNE && LPUART1->ISR & USART_ISR_IDLE)
+	{
+		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
+	}
 	if (LPUART1->ISR & USART_ISR_RXNE) {
 		LPUART1->CR1 |= USART_CR1_IDLEIE;
 		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
@@ -430,12 +434,17 @@ void AES_RNG_LPUART1_IRQHandler(void)
 		//LPUART1->ICR |= USART_ICR_IDLECF;
 		LPUART1->CR1 &= ~USART_CR1_IDLEIE;
 		dma_stop = 1;
+		//__DMB();
+		//__DSB();
+		//__ISB();
 		NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
 	}
 }
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
+	for (int i=0; i < 100; ++i);
+
 	if (DMA1->ISR & DMA_ISR_TCIF3 || dma_stop)
 	{
 		dma_stop = 0;
