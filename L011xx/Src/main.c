@@ -24,6 +24,7 @@
 
 volatile int dma_stop=0;
 volatile int done=0;
+volatile int simple=0;
 
 #define RX_CAP (64U)
 
@@ -93,8 +94,8 @@ void LPUART1_Init(void)
 	/* Clear TC flag after idle frame transmission */
     LPUART1->ICR |= USART_ICR_TCCF;
 
-    NVIC_EnableIRQ(LPUART1_IRQn);
-    NVIC_SetPriority(LPUART1_IRQn, 0);
+    // NVIC_EnableIRQ(LPUART1_IRQn);
+    // NVIC_SetPriority(LPUART1_IRQn, 0);
 }
 
 
@@ -150,8 +151,29 @@ void dequeue(uint8_t *dest)
 }
 
 
+void LPUART1_Transmit_Receive_Simple(const uint8_t *src, uint8_t *dest, uint8_t ct, uint8_t cr)
+{
+	simple = 1;
+	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
+	DMA1_Channel3->CCR &= ~DMA_CCR_EN;
+
+	DMA1_Channel2->CMAR = (uint32_t)src;
+	DMA1_Channel3->CMAR = (uint32_t)dest;
+	DMA1_Channel2->CNDTR = ct;
+	if (cr > 0) DMA1_Channel3->CNDTR = cr;
+
+	done = 0;
+	DMA1_Channel2->CCR |= DMA_CCR_EN;
+	if (cr > 0) DMA1_Channel3->CCR |= DMA_CCR_EN;
+	while(!done);
+	done=0;
+	if (cr> 0) while(!done);
+}
+
+
 void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_transmit, uint8_t count_receive)
 {
+	simple = 0;
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
 	// DMA1_Channel3->CCR &= ~DMA_CCR_EN;
 
@@ -169,7 +191,7 @@ void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_t
 
 	for (int i=0; i < count_receive; ++i)
 	{
-		dequeue(dest);
+		dequeue(dest++);
 	}
 }
 
@@ -413,7 +435,8 @@ int main(void)
 
 	while (1)
 	{
-		LPUART1_Transmit_Receive(buf, buf, 8, 8);
+		LPUART1_Transmit_Receive_Simple(buf, buf, 8, 8);
+		// LPUART1_Transmit_Receive(buf, buf, 8, 8);
 		I2C_Master_Transmit(I2C1, slave, buf, 8);
 		I2C_Master_Receive(I2C1, slave, buf, 8);
 	}
@@ -421,6 +444,11 @@ int main(void)
 
 void AES_RNG_LPUART1_IRQHandler(void)
 {
+	if (simple)
+	{
+		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
+		LPUART1->CR1 &= ~USART_CR1_IDLEIE;
+	}
 	if (LPUART1->ISR & USART_ISR_RXNE && LPUART1->ISR & USART_ISR_IDLE)
 	{
 		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
@@ -443,10 +471,17 @@ void AES_RNG_LPUART1_IRQHandler(void)
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
-	for (int i=0; i < 100; ++i);
+	// if (!simple) for (int i=0; i < 1000; ++i);
 
-	if (DMA1->ISR & DMA_ISR_TCIF3 || dma_stop)
+	if (DMA1->ISR & DMA_ISR_TCIF3 )//|| dma_stop)
 	{
+		done = 1;
+		//if (simple)
+		{
+			DMA1->IFCR |= DMA_IFCR_CTCIF3;
+			return;
+		}
+
 		dma_stop = 0;
 
 		DMA1_Channel3->CCR &= ~DMA_CCR_EN;
