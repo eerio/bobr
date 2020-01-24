@@ -182,9 +182,9 @@ void dequeue(uint8_t *dest)
 }
 
 
-void LPUART1_Transmit_Receive_Simple(const uint8_t *src, uint8_t *dest, uint8_t ct, uint8_t cr)
+#if defined(SIMPLE__)
+void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t ct, uint8_t cr)
 {
-	simple = 1;
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
 	DMA1_Channel3->CCR &= ~DMA_CCR_EN;
 
@@ -200,11 +200,9 @@ void LPUART1_Transmit_Receive_Simple(const uint8_t *src, uint8_t *dest, uint8_t 
 	done=0;
 	if (cr> 0) while(!done);
 }
-
-
+#else
 void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_transmit, uint8_t count_receive)
 {
-	simple = 0;
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
 	// DMA1_Channel3->CCR &= ~DMA_CCR_EN;
 
@@ -225,6 +223,7 @@ void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_t
 		dequeue(dest++);
 	}
 }
+#endif
 
 void I2C1_Init(void)
 {
