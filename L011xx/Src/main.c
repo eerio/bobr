@@ -2,11 +2,11 @@
 #include"stm32l0xx.h"
 #include"system_stm32l0xx.h"
 
-#define TIMEOUT_1 (10000U)
+#define TIMEOUT_1 (100U)
 
 /* Private debugging flag */
 #define DEBUG__ (1U)
-// #define SIMPLE__ (1U)
+#define SIMPLE__ (1U)
 
 /* FPU guard */
 #if !defined(__SOFT_FP__) && defined(__ARM_FP)
