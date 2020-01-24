@@ -2,6 +2,8 @@
 #include"stm32l0xx.h"
 #include"system_stm32l0xx.h"
 
+#define TIMEOUT_1 (10000U)
+
 /* Private debugging flag */
 #define DEBUG__ (1U)
 // #define SIMPLE__ (1U)
@@ -36,7 +38,14 @@
 #define LED_OFF() (LED_PORT->BRR |= (1 << LED_PIN))
 #define LED_TOG() (LED_PORT->ODR ^= (1 << LED_PIN))
 
-#define RX_CAP (64U)
+#define RX_CAP (17U)
+
+
+enum status
+{
+	OK,
+	EXC_TIMEOUT
+};
 
 volatile int dma_stop=0;
 volatile int done=0;
@@ -173,12 +182,16 @@ int q_is_empty(void)
 	return q_size == 0;
 }
 
-void dequeue(uint8_t *dest)
+int dequeue(uint8_t *dest, uint32_t timeout)
 {
-	while(q_is_empty());
+	while(q_is_empty() && timeout--);
+	if (!timeout) return 0;
+
 	*dest = q_buffer[q_front];
 	q_front = (q_front + 1) % q_cap;
 	q_size--;
+
+	return timeout;
 }
 
 
@@ -206,16 +219,28 @@ void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t ct, uin
 
 #else
 
-void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_transmit, uint8_t count_receive)
+int LPUART1_Transmit_Receive
+(
+		const uint8_t *src,
+		uint8_t *dest,
+		uint8_t count_transmit,
+		uint8_t count_receive,
+		uint32_t timeout
+)
 {
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
 	DMA1_Channel2->CMAR = (uint32_t)src;
 	DMA1_Channel2->CNDTR = count_transmit;
 	done = 0;
 	DMA1_Channel2->CCR |= DMA_CCR_EN;
-	while(!done);
+	while(!done && timeout--);
 
-	for (int i=0; i < count_receive; ++i) dequeue(dest++);
+	for (int i=0; i < count_receive && timeout; ++i)
+	{
+		timeout = dequeue(dest++, timeout);
+	}
+
+	return timeout;
 }
 
 #endif
@@ -280,61 +305,69 @@ void I2C1_Init(void)
 }
 
 
-void I2C_Master_Receive(
+int I2C_Master_Receive(
 		I2C_TypeDef *I2C,
 		uint8_t slave_addr,
 		uint8_t *buf,
-		uint8_t count
+		uint8_t count,
+		uint32_t timeout
 )
 {
 	/* Sequence: RM p. 611, 612 */
 	I2C->CR2 = 0;
-	while (I2C->ISR & I2C_ISR_BUSY);
+	while (I2C->ISR & I2C_ISR_BUSY && timeout--);
+	if (!timeout) return 0;
 	I2C->CR2 |= count << I2C_CR2_NBYTES_Pos;
 	I2C->CR2 |= I2C_CR2_RD_WRN;
 	I2C->CR2 |=  slave_addr;
 	I2C->CR2 |= I2C_CR2_START;
 	for (int i=0; i < count; ++i)
 	{
-		while ((I2C->ISR & I2C_ISR_RXNE) == 0);
+		while ((I2C->ISR & I2C_ISR_RXNE) == 0 && timeout--);
+		if (!timeout) return 0;
 		*buf++ = I2C1->RXDR;
 	}
-	while ((I2C->ISR & I2C_ISR_TC) == 0);
+	while ((I2C->ISR & I2C_ISR_TC) == 0 && timeout--);
 	I2C->CR2 |= I2C_CR2_STOP;
-	while (I2C->ISR & I2C_ISR_BUSY);
+	while (I2C->ISR & I2C_ISR_BUSY && timeout--);
 	I2C->ICR |= I2C_ICR_STOPCF;
+	return timeout;
 }
 
 
-void I2C_Master_Transmit(
+int I2C_Master_Transmit(
 		I2C_TypeDef *I2C,
 		uint8_t slave_addr,
 		volatile const uint8_t *buf,
-		uint8_t count
+		uint8_t count,
+		uint32_t timeout
 )
 {
 	// Sequence: RM p. 607, 608
 	I2C1->CR2 = 0;
-	while (I2C1->ISR & I2C_ISR_BUSY);
+	while (I2C1->ISR & I2C_ISR_BUSY && timeout--);
+	if (!timeout) return 0;
 	I2C1->CR2 |= (count << I2C_CR2_NBYTES_Pos) | slave_addr;
 	I2C1->CR2 |= I2C_CR2_START;
 
 	if (I2C1->ISR & I2C_ISR_NACKF)
 	{
 		LED_ON();
-		while(1);
+		return 0;
 	}
 
 	for (int i=0; i < count; ++i)
 	{
-		while ((I2C1->ISR & I2C_ISR_TXE) == 0);
+		while ((I2C1->ISR & I2C_ISR_TXE) == 0 && timeout--);
+		if (!timeout) return 0;
 		I2C1->TXDR = *buf++;
 	}
 
-	while ((I2C1->ISR & I2C_ISR_TC) == 0);
+	while ((I2C1->ISR & I2C_ISR_TC) == 0 && timeout--);
 	I2C1->CR2 |= I2C_CR2_STOP;
-	while (I2C1->ISR & I2C_ISR_BUSY);
+	while (I2C1->ISR & I2C_ISR_BUSY && timeout--);
 	I2C1->ICR |= I2C_ICR_STOPCF;
+	return timeout;
 }
 
 
@@ -378,8 +411,8 @@ void LTC_Init(void)
 	uint8_t ltc_addr = 0x64 << 1;
 	uint8_t tx_buf[] = {0};
 	uint8_t rx_buf[64] = {0};
-	I2C_Master_Transmit(I2C1, ltc_addr, tx_buf, sizeof(tx_buf));
-	I2C_Master_Receive(I2C1, ltc_addr, rx_buf, sizeof(rx_buf));
+	I2C_Master_Transmit(I2C1, ltc_addr, tx_buf, sizeof(tx_buf), TIMEOUT_1);
+	I2C_Master_Receive(I2C1, ltc_addr, rx_buf, sizeof(rx_buf), TIMEOUT_1);
 }
 
 void BQ_Init(void)
@@ -411,28 +444,28 @@ void BQ_Init(void)
 
 	// Send init seq
 	delay(big_del);
-	LPUART1_Transmit_Receive(cmd0, buf, sizeof(cmd0), 0);
-	LPUART1_Transmit_Receive(cmd1, buf, sizeof(cmd1), 0);
-	LPUART1_Transmit_Receive(cmd2, buf, sizeof(cmd2), 0);
-	LPUART1_Transmit_Receive(cmd3, buf, sizeof(cmd3), 0);
-	LPUART1_Transmit_Receive(cmd4, buf, sizeof(cmd4), 0);
-	LPUART1_Transmit_Receive(cmd5, buf, sizeof(cmd5), 0);
+	LPUART1_Transmit_Receive(cmd0, buf, sizeof(cmd0), 0, TIMEOUT_1);
+	LPUART1_Transmit_Receive(cmd1, buf, sizeof(cmd1), 0, TIMEOUT_1);
+	LPUART1_Transmit_Receive(cmd2, buf, sizeof(cmd2), 0, TIMEOUT_1);
+	LPUART1_Transmit_Receive(cmd3, buf, sizeof(cmd3), 0, TIMEOUT_1);
+	LPUART1_Transmit_Receive(cmd4, buf, sizeof(cmd4), 0, TIMEOUT_1);
+	LPUART1_Transmit_Receive(cmd5, buf, sizeof(cmd5), 0, TIMEOUT_1);
 
 	// Set communication timeout to 30 min
 	delay(med_delay);
-	LPUART1_Transmit_Receive(cmd6, buf, sizeof(cmd6), 0);
+	LPUART1_Transmit_Receive(cmd6, buf, sizeof(cmd6), 0, TIMEOUT_1);
 
 	// Init all 6 cells
 	delay(med_delay);
-	LPUART1_Transmit_Receive(init_cells, buf, sizeof(init_cells), 0);
+	LPUART1_Transmit_Receive(init_cells, buf, sizeof(init_cells), 0, TIMEOUT_1);
 
 	// Enable continuous conversion
 	delay(med_delay);
-	LPUART1_Transmit_Receive(contin_conv, buf, sizeof(contin_conv), 0);
+	LPUART1_Transmit_Receive(contin_conv, buf, sizeof(contin_conv), 0, TIMEOUT_1);
 
 	// Start conversion
 	delay(med_delay);
-	LPUART1_Transmit_Receive(adc_go, buf, sizeof(adc_go), 0);
+	LPUART1_Transmit_Receive(adc_go, buf, sizeof(adc_go), 0, TIMEOUT_1);
 }
 
 int main(void)
@@ -458,11 +491,10 @@ int main(void)
 
 	while (1)
 	{
-		//LPUART1_Transmit_Receive_Simple(buf_tx, buf_rx, 8, 8);
-		LPUART1_Transmit_Receive(buf_tx, buf_rx, 8, 8);
+		if (!LPUART1_Transmit_Receive(buf_tx, buf_rx, 8, 8, TIMEOUT_1)) continue;
 		memset(buf_tx, 0, 8);
-		I2C_Master_Transmit(I2C1, slave, buf_rx, 8);
-		I2C_Master_Receive(I2C1, slave, buf_tx, 8);
+		if (!I2C_Master_Transmit(I2C1, slave, buf_rx, 8, TIMEOUT_1)) continue;
+		if (!I2C_Master_Receive(I2C1, slave, buf_tx, 8, TIMEOUT_1)) continue;
 	}
 }
 
@@ -471,6 +503,7 @@ void AES_RNG_LPUART1_IRQHandler(void)
 	if (LPUART1->ISR & USART_ISR_RXNE && LPUART1->ISR & USART_ISR_IDLE)
 	{
 		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
+		LPUART1->RDR;
 	}
 	if (LPUART1->ISR & USART_ISR_RXNE) {
 		LPUART1->CR1 |= USART_CR1_IDLEIE;
