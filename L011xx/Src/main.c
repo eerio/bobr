@@ -236,7 +236,7 @@ void I2C1_Init(void)
 	 */
 
 	/* Sequence: RM p. 216 */
-#if defined(_DEBUG)
+#if defined(DEBUG__)
 	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
 	GPIOB->MODER &= ~(GPIO_MODER_MODE6 | GPIO_MODER_MODE7);
 	GPIOB->MODER |= GPIO_MODER_MODE6_1 | GPIO_MODER_MODE7_1;
@@ -252,7 +252,7 @@ void I2C1_Init(void)
 	GPIOA->AFR[1] |= (0x1) << GPIO_AFRH_AFSEL9_Pos;
 	GPIOA->AFR[1] |= (0x1) << GPIO_AFRH_AFSEL10_Pos;
 	GPIOA->OTYPER |= GPIO_OTYPER_OT_9 | GPIO_OTYPER_OT_10;
-#endif // defined(_DEBUG)
+#endif // defined(DEBUG__)
 
 	/* Configuration:
 	 * Mode: master
@@ -454,7 +454,7 @@ int main(void)
 	DMA_Init(q_buffer);
 	LPUART1_Init();
 
-#if !defined(_DEBUG)
+#if !defined(DEBUG__)
 	BQ_Init();
 	LTC_Init();
 	while(1);
