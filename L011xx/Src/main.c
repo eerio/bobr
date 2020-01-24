@@ -111,8 +111,10 @@ void USART2_Init(void)
 
 	USART2->CR3 |= USART_CR3_OVRDIS;
 	uint32_t f_ck, baud;
-	f_ck = 16000000; // SystemCoreClock;
-	baud = 9200;
+	//f_ck = 16000000; // SystemCoreClock;
+	//baud = 9200;
+	f_ck=16000000;
+	baud=9600;
 	USART2->BRR |= f_ck / baud;
 
 	// USART2->CR3 |= USART_CR3_DMAR | USART_CR3_DMAT;
@@ -480,13 +482,22 @@ void LTC_Init(void)
 	}
 }
 
+void USART2_Transmit(uint8_t *buf, unsigned int n)
+{
+	for (int i=0; i<n; ++i)
+	{
+		while((USART2->ISR & USART_ISR_TXE) == 0);
+		USART2->TDR = *buf++;
+	}
+}
+
 
 void BQ_Init(void)
 {
 	RCC->IOPENR |= RCC_IOPENR_IOPCEN;
 	GPIOC->MODER &= ~(GPIO_MODER_MODE15);
 	GPIOC->MODER |= GPIO_MODER_MODE15_0;
-	uint8_t buf[100];
+	uint8_t buf[100]={0};
 
 	int f=12;
 	int small_del=48, med_delay=1000*f, big_del=10000*f;
@@ -503,6 +514,11 @@ void BQ_Init(void)
 	uint8_t contin_conv[] = {0xD0, 0x00, 0x25, 0x08, 0x23, 0xB2};
 	uint8_t adc_go[] = {0xD0, 0x01, 0x06, 0x81, 0xAA, 0xE4};
 
+	uint8_t read_6_cells[] = {0x80, 0x00, 0x02, 0x15, 0x0B, 0xCB, 0x49};
+	//uint8_t read_6_cells[] = {0x80, 0x00, 0x02, 0x1A, 0x0B, 0xCE, 0xB9};
+	/* 2 bytes each, msb fist */
+	//uint8_t read_6_cells[] = {0x80, 0x00, 0x02, 0xC0, 0x12, 0x54, 0x13};
+
 	// Send wake tone
 	GPIOC->BRR |= (1 << 15);
 	delay(small_del);
@@ -518,7 +534,8 @@ void BQ_Init(void)
 
 	LPUART1_Transmit_Receive(cmd5, buf, sizeof(cmd5), 8, TIMEOUT_1);
 
-	USART2_Transmit(buf, 8);
+	//delay(0);
+	//USART2_Transmit(buf, 6);
 
 	// Set communication timeout to 30 min
 	delay(med_delay);
@@ -535,15 +552,15 @@ void BQ_Init(void)
 	// Start conversion
 	delay(med_delay);
 	LPUART1_Transmit_Receive(adc_go, buf, sizeof(adc_go), 0, TIMEOUT_1);
-}
 
-
-void USART2_Transmit(uint8_t *buf, unsigned int n)
-{
-	for (int i=0; i<n; ++i)
+	// Read
+	while(1)
 	{
-		while((USART2->ISR & USART_ISR_TXE) == 0);
-		USART2->TDR = *buf++;
+		memset(buf, 0, read_6_cells[4]+1);
+		delay(50000);
+		LPUART1_Transmit_Receive(read_6_cells, buf, sizeof(read_6_cells), read_6_cells[4]+1, 250000);
+		USART2_Transmit(buf, read_6_cells[4]+1);
+
 	}
 }
 
@@ -570,6 +587,7 @@ int main(void)
 	DMA_Init(q_buffer);
 	LPUART1_Init();
 	USART2_Init();
+	USART2_Transmit("chujnik", 8);
 
 #if !defined(DEBUG__)
 	BQ_Init();
