@@ -460,25 +460,23 @@ int main(void)
 	while(1);
 #endif
 
-	uint8_t buf[8]="chujnia";
+	uint8_t buf_tx[8]="chujnia",
+			buf_rx[8]={0};
+
 	uint8_t slave=100;
 
 	while (1)
 	{
-		LPUART1_Transmit_Receive_Simple(buf, buf, 8, 8);
-		// LPUART1_Transmit_Receive(buf, buf, 8, 8);
-		I2C_Master_Transmit(I2C1, slave, buf, 8);
-		I2C_Master_Receive(I2C1, slave, buf, 8);
+		//LPUART1_Transmit_Receive_Simple(buf_tx, buf_rx, 8, 8);
+		LPUART1_Transmit_Receive(buf_tx, buf_rx, 8, 8);
+		memset(buf_tx, 0, 8);
+		I2C_Master_Transmit(I2C1, slave, buf_rx, 8);
+		I2C_Master_Receive(I2C1, slave, buf_tx, 8);
 	}
 }
 
 void AES_RNG_LPUART1_IRQHandler(void)
 {
-	if (simple)
-	{
-		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
-		LPUART1->CR1 &= ~USART_CR1_IDLEIE;
-	}
 	if (LPUART1->ISR & USART_ISR_RXNE && LPUART1->ISR & USART_ISR_IDLE)
 	{
 		LPUART1->CR1 &= ~USART_CR1_RXNEIE;
@@ -501,16 +499,24 @@ void AES_RNG_LPUART1_IRQHandler(void)
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
-	// if (!simple) for (int i=0; i < 1000; ++i);
 
-	if (DMA1->ISR & DMA_ISR_TCIF3 )//|| dma_stop)
+#if !defined(SIMPLE__)
+	for (int i=0; i < 1000; ++i);
+#endif
+
+#if !defined(SIMPLE__)
+	if (DMA1->ISR & DMA_ISR_TCIF3 || dma_stop)
+#else
+	if (DMA1->ISR & DMA_ISR_TCIF3)
+#endif
 	{
 		done = 1;
-		//if (simple)
+#if defined(SIMPLE__)
 		{
 			DMA1->IFCR |= DMA_IFCR_CTCIF3;
 			return;
 		}
+#endif
 
 		dma_stop = 0;
 
