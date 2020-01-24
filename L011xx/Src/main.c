@@ -94,6 +94,42 @@ void delay_ns(uint32_t ns)
 	__enable_irq();
 }
 
+
+void USART2_Init(void)
+{
+	/* TX: PB6 (AF0)
+	 * RX: PB7 (AF0)
+	 */
+	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
+	GPIOB->MODER &= ~(GPIO_MODER_MODE6 | GPIO_MODER_MODE7);
+	GPIOB->MODER |= GPIO_MODER_MODE6_1 | GPIO_MODER_MODE7_1;
+	GPIOB->AFR[0] &= ~(GPIO_AFRL_AFSEL6 | GPIO_AFRL_AFSEL7);
+	GPIOB->AFR[0] |= (0x0) << GPIO_AFRL_AFSEL6_Pos;
+	GPIOB->AFR[0] |= (0x0) << GPIO_AFRL_AFSEL7_Pos;
+
+	RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
+
+	USART2->CR3 |= USART_CR3_OVRDIS;
+	uint32_t f_ck, baud;
+	f_ck = 16000000; // SystemCoreClock;
+	baud = 9200;
+	USART2->BRR |= f_ck / baud;
+
+	// USART2->CR3 |= USART_CR3_DMAR | USART_CR3_DMAT;
+
+	USART2->CR1 |= USART_CR1_UE;
+	USART2->CR1 |= USART_CR1_RE;
+	USART2->CR1 |= USART_CR1_TE;
+
+	/* Clear Framing Error and Character Match flags */
+	USART2->ICR |= USART_ICR_FECF;
+	/* Poll idle frame transmission */
+	while ((USART2->ISR & USART_ISR_TC) == 0);
+	/* Clear TC flag after idle frame transmission */
+	USART2->ICR |= USART_ICR_TCCF;
+}
+
+
 void LPUART1_Init(void)
 {
 	/* TX: PA1 (AF6)
@@ -479,7 +515,10 @@ void BQ_Init(void)
 	LPUART1_Transmit_Receive(cmd2, buf, sizeof(cmd2), 0, TIMEOUT_1);
 	LPUART1_Transmit_Receive(cmd3, buf, sizeof(cmd3), 0, TIMEOUT_1);
 	LPUART1_Transmit_Receive(cmd4, buf, sizeof(cmd4), 0, TIMEOUT_1);
-	LPUART1_Transmit_Receive(cmd5, buf, sizeof(cmd5), 0, TIMEOUT_1);
+
+	LPUART1_Transmit_Receive(cmd5, buf, sizeof(cmd5), 8, TIMEOUT_1);
+
+	USART2_Transmit(buf, 8);
 
 	// Set communication timeout to 30 min
 	delay(med_delay);
@@ -496,6 +535,16 @@ void BQ_Init(void)
 	// Start conversion
 	delay(med_delay);
 	LPUART1_Transmit_Receive(adc_go, buf, sizeof(adc_go), 0, TIMEOUT_1);
+}
+
+
+void USART2_Transmit(uint8_t *buf, unsigned int n)
+{
+	for (int i=0; i<n; ++i)
+	{
+		while((USART2->ISR & USART_ISR_TXE) == 0);
+		USART2->TDR = *buf++;
+	}
 }
 
 int main(void)
@@ -520,6 +569,7 @@ int main(void)
 	I2C1_Init();
 	DMA_Init(q_buffer);
 	LPUART1_Init();
+	USART2_Init();
 
 #if !defined(DEBUG__)
 	BQ_Init();
