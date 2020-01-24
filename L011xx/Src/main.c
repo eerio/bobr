@@ -110,7 +110,6 @@ void LPUART1_Init(void)
 	LPUART1->BRR |= 256 * f_ck / baud;
 
 	LPUART1->CR3 |= USART_CR3_DMAR | USART_CR3_DMAT;
-	LPUART1->CR1 |= USART_CR1_RXNEIE;
 
 	LPUART1->CR1 |= USART_CR1_UE;
 	LPUART1->CR1 |= USART_CR1_RE;
@@ -123,8 +122,11 @@ void LPUART1_Init(void)
 	/* Clear TC flag after idle frame transmission */
     LPUART1->ICR |= USART_ICR_TCCF;
 
-    // NVIC_EnableIRQ(LPUART1_IRQn);
-    // NVIC_SetPriority(LPUART1_IRQn, 0);
+#if !defined(SIMPLE__)
+    LPUART1->CR1 |= USART_CR1_RXNEIE;
+    NVIC_EnableIRQ(LPUART1_IRQn);
+    NVIC_SetPriority(LPUART1_IRQn, 0);
+#endif
 }
 
 
