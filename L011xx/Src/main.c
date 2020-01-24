@@ -5,7 +5,7 @@
 #define TIMEOUT_1 (100U)
 
 /* Private debugging flag */
-#define DEBUG__ (1U)
+//#define DEBUG__ (1U)
 #define SIMPLE__ (1U)
 
 /* FPU guard */
@@ -428,11 +428,22 @@ void USART_Receive (
 void LTC_Init(void)
 {
 	uint8_t ltc_addr = 0x64 << 1;
-	uint8_t tx_buf[] = {0};
+	uint8_t tx_buf[5] = {0, 1, 2, 3, 4};
 	uint8_t rx_buf[64] = {0};
-	I2C_Master_Transmit(I2C1, ltc_addr, tx_buf, sizeof(tx_buf), TIMEOUT_1);
-	I2C_Master_Receive(I2C1, ltc_addr, rx_buf, sizeof(rx_buf), TIMEOUT_1);
+
+	uint8_t cmd[] = {0x01, 0xFC};
+	I2C_Master_Transmit(I2C1, ltc_addr, &cmd, 2, 1000000);
+	// I2C_Master_Transmit(I2C1, ltc_addr, &cmd, 1, 1000000);
+	delay(10000);
+
+	uint8_t reg_addr = 0x00;
+	while(1){
+	I2C_Master_Transmit(I2C1, ltc_addr, &reg_addr, 1, 1000000);
+	I2C_Master_Receive(I2C1, ltc_addr, rx_buf, 16, 1000000);
+	delay(10000);
+	}
 }
+
 
 void BQ_Init(void)
 {
