@@ -22,21 +22,24 @@
 		LED_OFF();\
 		delay(30000);\
 	}
-#define LED_ON() (GPIOB->BSRR |= (1 << 3))
-#define LED_OFF() (GPIOB->BRR |= (1 << 3))
-#define LED_TOG() (GPIOB->ODR ^= (1 << 3))
-
-#if !defined(__SOFT_FP__) && defined(__ARM_FP)
-  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
+#else
+#define blinked(x) (x)
 #endif
 
-#define _DEBUG (1U)
+
+/* User LED: LD3 @ PB3 pin (UM 6.5) */
+#define LED_PIN (3U)
+#define LED_PORT (GPIOB)
+
+/* Generic LED-controlling macros */
+#define LED_ON() (LED_PORT->BSRR |= (1 << LED_PIN))
+#define LED_OFF() (LED_PORT->BRR |= (1 << LED_PIN))
+#define LED_TOG() (LED_PORT->ODR ^= (1 << LED_PIN))
+
+#define RX_CAP (64U)
 
 volatile int dma_stop=0;
 volatile int done=0;
-volatile int simple=0;
-
-#define RX_CAP (64U)
 
 volatile uint8_t q_buffer[RX_CAP];
 volatile int q_front=0,
