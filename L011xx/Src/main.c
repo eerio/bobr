@@ -2,10 +2,18 @@
 #include"stm32l0xx.h"
 #include"system_stm32l0xx.h"
 
-/* User LED: LD3 @ PB3 pin */
-#define LED_PORT (GPIOB)
-#define LED_PIN (3U)
+/* Private debugging flag */
+#define DEBUG__ (1U)
+// #define SIMPLE__ (1U)
 
+/* FPU guard */
+#if !defined(__SOFT_FP__) && defined(__ARM_FP)
+  #warning "FPU is not initialized, but the project is compiling for an FPU. Please initialize the FPU before use."
+#endif
+
+
+/* Debugging function to blink User LED and execute some code */
+#if defined(DEBUG__)
 #define blinked(x) \
 	{ \
 		LED_ON();\
