@@ -51,12 +51,28 @@ volatile int q_front=0,
 		q_cap=RX_CAP;
 
 
-
+// #pragma not optimize
+// inline
+/* change to us using systemcoreclcok */
 void delay(volatile unsigned n)
 {
 	while(--n);
 }
 
+void delay_ns(uint32_t ns)
+{
+	/* total_time_ns = scale*n*op*1e9 + off
+	 * op = 1/SystemCoreClock
+	 * total_time = scale*n*(1e9)/SystemCoreClock + off
+	 * n = (total_time - off) / scale / 1e9 * SystemCoreClock
+	 */
+	__disable_irq();
+	uint32_t scale=1, offset=0;
+	//uint32_t n = (ns - offset) / 1000000000 * SystemCoreClock / scale;
+
+	while (ns-- >= 0);
+	__enable_irq();
+}
 
 void LPUART1_Init(void)
 {
