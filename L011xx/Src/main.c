@@ -60,6 +60,17 @@ volatile int q_front=0,
 		q_cap=RX_CAP;
 
 
+void q_empty(void)
+{
+	DMA1_Channel3->CCR &= DMA_CCR_EN;
+	DMA1_Channel3->CMAR = (uint32_t)q_buffer;
+	q_front=q_back=new_q_back=last_transfer=q_size=q_overflow=0;
+	DMA1_Channel3->CNDTR = (uint16_t)q_cap;
+	new_q_back = q_cap-1;
+	last_transfer = q_cap;
+	DMA1_Channel3->CCR |= DMA_CCR_EN;
+}
+
 // #pragma not optimize
 // inline
 /* change to us using systemcoreclcok */
@@ -491,6 +502,7 @@ int main(void)
 
 	while (1)
 	{
+		q_empty();
 		if (!LPUART1_Transmit_Receive(buf_tx, buf_rx, 8, 8, TIMEOUT_1)) continue;
 		memset(buf_tx, 0, 8);
 		if (!I2C_Master_Transmit(I2C1, slave, buf_rx, 8, TIMEOUT_1)) continue;
@@ -519,11 +531,11 @@ void AES_RNG_LPUART1_IRQHandler(void)
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
-
+/*
 #if !defined(SIMPLE__)
 	for (int i=0; i < 1000; ++i);
 #endif
-
+*/
 #if !defined(SIMPLE__)
 	if (DMA1->ISR & DMA_ISR_TCIF3 || dma_stop)
 #else
