@@ -87,7 +87,7 @@ void delay_ns(uint32_t ns)
 	 * n = (total_time - off) / scale / 1e9 * SystemCoreClock
 	 */
 	__disable_irq();
-	uint32_t scale=1, offset=0;
+	//uint32_t scale=1, offset=0;
 	//uint32_t n = (ns - offset) / 1000000000 * SystemCoreClock / scale;
 
 	while (ns-- >= 0);
@@ -208,7 +208,14 @@ int dequeue(uint8_t *dest, uint32_t timeout)
 
 #if defined(SIMPLE__)
 
-void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t ct, uint8_t cr)
+int LPUART1_Transmit_Receive
+(
+		const uint8_t *src,
+		uint8_t *dest,
+		uint8_t ct,
+		uint8_t cr,
+		uint32_t timeout
+)
 {
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
 	DMA1_Channel3->CCR &= ~DMA_CCR_EN;
@@ -222,10 +229,11 @@ void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t ct, uin
 	done = 0;
 	DMA1_Channel2->CCR |= DMA_CCR_EN;
 	if (cr) DMA1_Channel3->CCR |= DMA_CCR_EN;
-	while(!done);
+	while(!done && timeout--);
 
 	done=0;
-	if (cr) while(!done);
+	if (cr) while(!done && timeout--);
+	return timeout;
 }
 
 #else
@@ -531,11 +539,7 @@ void AES_RNG_LPUART1_IRQHandler(void)
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
-/*
-#if !defined(SIMPLE__)
-	for (int i=0; i < 1000; ++i);
-#endif
-*/
+
 #if !defined(SIMPLE__)
 	if (DMA1->ISR & DMA_ISR_TCIF3 || dma_stop)
 #else
