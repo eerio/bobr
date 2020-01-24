@@ -183,6 +183,7 @@ void dequeue(uint8_t *dest)
 
 
 #if defined(SIMPLE__)
+
 void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t ct, uint8_t cr)
 {
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
@@ -190,39 +191,33 @@ void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t ct, uin
 
 	DMA1_Channel2->CMAR = (uint32_t)src;
 	DMA1_Channel3->CMAR = (uint32_t)dest;
+
 	DMA1_Channel2->CNDTR = ct;
-	if (cr > 0) DMA1_Channel3->CNDTR = cr;
+	if (cr) DMA1_Channel3->CNDTR = cr;
 
 	done = 0;
 	DMA1_Channel2->CCR |= DMA_CCR_EN;
-	if (cr > 0) DMA1_Channel3->CCR |= DMA_CCR_EN;
+	if (cr) DMA1_Channel3->CCR |= DMA_CCR_EN;
 	while(!done);
+
 	done=0;
-	if (cr> 0) while(!done);
+	if (cr) while(!done);
 }
+
 #else
+
 void LPUART1_Transmit_Receive(const uint8_t *src, uint8_t *dest, uint8_t count_transmit, uint8_t count_receive)
 {
 	DMA1_Channel2->CCR &= ~DMA_CCR_EN;
-	// DMA1_Channel3->CCR &= ~DMA_CCR_EN;
-
 	DMA1_Channel2->CMAR = (uint32_t)src;
-	// DMA1_Channel3->CMAR = (uint32_t)dest;
 	DMA1_Channel2->CNDTR = count_transmit;
-	// if (count_receive > 0) DMA1_Channel3->CNDTR = count_receive;
-
 	done = 0;
 	DMA1_Channel2->CCR |= DMA_CCR_EN;
-	// if (count_receive > 0) DMA1_Channel3->CCR |= DMA_CCR_EN;
 	while(!done);
-	// done=0;
-	// if (count_receive > 0) while(!done);
 
-	for (int i=0; i < count_receive; ++i)
-	{
-		dequeue(dest++);
-	}
+	for (int i=0; i < count_receive; ++i) dequeue(dest++);
 }
+
 #endif
 
 void I2C1_Init(void)
@@ -278,8 +273,6 @@ void I2C1_Init(void)
 	/* Sequence: RM p. 590 */
 	I2C1->TIMINGR |= 0x00503D5A;
 
-	//I2C1->CR2 |= I2C_CR2_RELOAD;
-	//I2C1->CR2 |= 0xA5;// << 1;
     I2C1->OAR1 |= (uint32_t)(0x69 << 1);
     I2C1->OAR1 |= I2C_OAR1_OA1EN;
 
@@ -355,8 +348,6 @@ void ADC_config(void)
 
 	ADC1->CFGR1 |= ADC_CFGR1_CONT;
 	ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;
-	//ADC1->CR |= ADC_CR_ADEN;
-	//while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {}
 	ADC1->CR |= ADC_CR_ADCAL;
 	while (ADC1->CR & ADC_CR_ADCAL);
 
@@ -487,12 +478,8 @@ void AES_RNG_LPUART1_IRQHandler(void)
 	}
 	else if (LPUART1->ISR & USART_ISR_IDLE)
 	{
-		//LPUART1->ICR |= USART_ICR_IDLECF;
 		LPUART1->CR1 &= ~USART_CR1_IDLEIE;
 		dma_stop = 1;
-		//__DMB();
-		//__DSB();
-		//__ISB();
 		NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
 	}
 }
@@ -539,8 +526,8 @@ void DMA1_Channel2_3_IRQHandler(void)
 			cap = q_cap - q_back - 1;
 			if (cap == 0) // gotta rewind
 			{
-				DMA1_Channel3->CMAR = (uint32_t)q_buffer; // cmar = [0];
-				DMA1_Channel3->CNDTR = q_front; // cndtr = q_front;
+				DMA1_Channel3->CMAR = (uint32_t)q_buffer;
+				DMA1_Channel3->CNDTR = q_front;
 				last_transfer = q_front;
 			}
 			else
