@@ -472,6 +472,8 @@ void LTC_Init(void)
 	uint8_t cmd[] = {0x01, 0xFC};
 	I2C_Master_Transmit(I2C1, ltc_addr, &cmd, 2, 1000000);
 	// I2C_Master_Transmit(I2C1, ltc_addr, &cmd, 1, 1000000);
+
+	/*
 	delay(10000);
 
 	uint8_t reg_addr = 0x00;
@@ -480,6 +482,7 @@ void LTC_Init(void)
 	I2C_Master_Receive(I2C1, ltc_addr, rx_buf, 16, 1000000);
 	delay(10000);
 	}
+	*/
 }
 
 void USART2_Transmit(uint8_t *buf, unsigned int n)
@@ -554,6 +557,7 @@ void BQ_Init(void)
 	LPUART1_Transmit_Receive(adc_go, buf, sizeof(adc_go), 0, TIMEOUT_1);
 
 	// Read
+	/*
 	while(1)
 	{
 		memset(buf, 0, read_6_cells[4]+1);
@@ -562,6 +566,7 @@ void BQ_Init(void)
 		USART2_Transmit(buf, read_6_cells[4]+1);
 
 	}
+	*/
 }
 
 int main(void)
@@ -587,12 +592,29 @@ int main(void)
 	DMA_Init(q_buffer);
 	LPUART1_Init();
 	USART2_Init();
-	USART2_Transmit("chujnik", 8);
+	//USART2_Transmit("chujnik", 8);
 
 #if !defined(DEBUG__)
 	BQ_Init();
 	LTC_Init();
-	while(1);
+	uint8_t bq_rx[64] = {0};
+	uint8_t ltc_rx[64] = {0};
+	uint8_t ltc_addr = 0x64 << 1;
+	uint8_t reg_addr = 0;
+	uint8_t read_6_cells[] = {0x80, 0x00, 0x02, 0x15, 0x0B, 0xCB, 0x49};
+	while(1)
+	{
+		delay(200000);
+		// USART2_Transmit("BQ:", 3);
+		LPUART1_Transmit_Receive(read_6_cells, bq_rx, sizeof(read_6_cells), read_6_cells[4]+1, 250000);
+		USART2_Transmit(bq_rx, read_6_cells[4]+1);
+		delay(50000);
+
+		// USART2_Transmit("LTC:", 4);
+		I2C_Master_Transmit(I2C1, ltc_addr, &reg_addr, 1, 1000000);
+		I2C_Master_Receive(I2C1, ltc_addr, ltc_rx, 16, 1000000);
+		USART2_Transmit(ltc_rx, 16);
+	}
 #endif
 
 	uint8_t buf_tx[8]="chujnia",
