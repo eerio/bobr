@@ -6,6 +6,7 @@
 
 /* Private debugging flag */
 #define DEBUG__ (1U)
+/* Simple / complex USART switch */
 #define SIMPLE__ (1U)
 
 /* FPU guard */
@@ -40,12 +41,23 @@
 
 #define RX_CAP (17U)
 
+/* BQ balancer definitions */
+#define ON (1U)
+#define OFF (0U)
 
 enum status
 {
 	OK,
 	EXC_TIMEOUT
 };
+
+typedef struct {
+	unsigned int cell_vs[6];
+	unsigned int solar_v;
+	unsigned int charging_i;
+	unsigned int mppt_i;
+	unsigned int accumulator;
+} PixhawkFrame;
 
 volatile int dma_stop=0;
 volatile int done=0;
@@ -546,8 +558,8 @@ volatile uint16_t adc_val[2]={100, 200};
 void ADC_DMA_Init(void)
 {
 	RCC->IOPENR |= RCC_IOPENR_IOPAEN;
-	GPIOA->MODER |= GPIO_MODER_MODE0;
-	GPIOA->MODER |= GPIO_MODER_MODE1;
+	GPIOA->MODER |= GPIO_MODER_MODE4;
+	GPIOA->MODER |= GPIO_MODER_MODE5;
 
 	RCC->APB2ENR |= RCC_APB2ENR_ADCEN;
 
@@ -555,8 +567,8 @@ void ADC_DMA_Init(void)
 	ADC1->SMPR |= ADC_SMPR_SMP;
 	ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;
 
-	ADC1->CHSELR |= ADC_CHSELR_CHSEL0;
-	ADC1->CHSELR |= ADC_CHSELR_CHSEL1;
+	ADC1->CHSELR |= ADC_CHSELR_CHSEL4;
+	ADC1->CHSELR |= ADC_CHSELR_CHSEL5;
 
 
 	/* Calibrate */
@@ -607,79 +619,133 @@ void ADC_DMA_Init(void)
 	ADC1->CR |= ADC_CR_ADSTART;
 }
 
+int how_many_cells(uint8_t *buf)
+{
+	return 0;
+}
+
+void handle_n_cells(int n)
+{
+	switch (n)
+	{
+	case 0:
+	case 1:
+	case 2:
+	case 3:
+		break;
+	case 4:
+		GPIOA->BRR |= (1 << 6);
+		GPIOB->BRR |= (1 << 1);
+		GPIOA->BSRR |= (1 << 7);
+		break;
+	case 5:
+		GPIOA->BRR |= (1 << 6);
+		GPIOB->BSRR |= (1 << 1);
+		GPIOA->BRR |= (1 << 7);
+		break;
+	case 6:
+		GPIOA->BSRR |= (1 << 6);
+		GPIOB->BRR |= (1 << 1);
+		GPIOA->BRR |= (1 << 7);
+		break;
+	}
+
+}
+
+int get_v_bat(uint8_t *buf)
+{
+	return 0;
+}
+
+void bq_balancing(int state)
+{
+
+}
+
+void prepare_data(PixhawkFrame *frame, uint8_t *bq_data, uint8_t *ltc_data, uint8_t v_solar, uint8_t v_bat, uint8_t v_ismon)
+{
+
+}
+
+void send_to_pixhawk(PixhawkFrame *frame)
+{
+
+}
+
 int main(void)
 {
-	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
-	GPIOB->MODER &= ~(GPIO_MODER_MODE3);
-	GPIOB->MODER |= GPIO_MODER_MODE3_0;
-
-#if !defined(DEBUG__)
-	RCC->IOPENR |= RCC_IOPENR_IOPCEN;
 	RCC->IOPENR |= RCC_IOPENR_IOPAEN;
+	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
+	RCC->IOPENR |= RCC_IOPENR_IOPCEN;
 
+	GPIOB->MODER &= ~(GPIO_MODER_MODE3);
+	GPIOA->MODER &= ~(GPIO_MODER_MODE6);
 	GPIOA->MODER &= ~(GPIO_MODER_MODE7);
-	GPIOC->MODER &= ~(GPIO_MODER_MODE14);
+	GPIOB->MODER &= ~(GPIO_MODER_MODE1);
+	GPIOC->MODER &= ~GPIO_MODER_MODE14;
+
+	GPIOB->MODER |= GPIO_MODER_MODE3_0;
+	GPIOA->MODER |= GPIO_MODER_MODE6_0;
 	GPIOA->MODER |= GPIO_MODER_MODE7_0;
+	GPIOB->MODER |= GPIO_MODER_MODE1_0;
 	GPIOC->MODER |= GPIO_MODER_MODE14_0;
 
 	GPIOA->BSRR |= (1 << 7);
-	GPIOC->BSRR |= (1 << 14);
-#endif
+	GPIOA->BRR |= (1 << 6 | 1 << 7);
+	GPIOB->BRR |= 1 << 1;
+	GPIOC->BRR |= 1 << 14;
 
-	// I2C1_Init();
-	//DMA_Init(q_buffer);
-	//LPUART1_Init();
+	I2C1_Init();
+	DMA_Init(q_buffer);
+	LPUART1_Init();
 	USART2_Init();
+	ADC_DMA_Init();
 
-	volatile uint8_t msg;
-	volatile uint16_t val0, val1;
-	volatile uint8_t to_send[4];
-	uint32_t timeout = 10000;
-
-	blinked(ADC_DMA_Init();)
-
-	while(1)
-	{
-		delay(50000);
-		USART2_Transmit((uint8_t*)&adc_val[0], 2);
-		USART2_Transmit((uint8_t*)&adc_val[1], 2);
-	}
-
-#if !defined(DEBUG__)
 	BQ_Init();
 	LTC_Init();
+
 	uint8_t bq_rx[64] = {0};
 	uint8_t ltc_rx[64] = {0};
 	uint8_t ltc_addr = 0x64 << 1;
 	uint8_t reg_addr = 0;
 	uint8_t read_6_cells[] = {0x80, 0x00, 0x02, 0x15, 0x0B, 0xCB, 0x49};
+	uint8_t n_cells;
+	int v_solar, v_ismon, v_bat;
+	PixhawkFrame data;
+
 	while(1)
 	{
 		delay(200000);
 		// USART2_Transmit("BQ:", 3);
 		LPUART1_Transmit_Receive(read_6_cells, bq_rx, sizeof(read_6_cells), read_6_cells[4]+1, 250000);
-		USART2_Transmit(bq_rx, read_6_cells[4]+1);
+		// USART2_Transmit(bq_rx, read_6_cells[4]+1);
+		v_bat = get_v_bat(bq_rx);
+		n_cells = how_many_cells(bq_rx);
+		handle_n_cells(n_cells);
+
 		delay(50000);
 
 		// USART2_Transmit("LTC:", 4);
 		I2C_Master_Transmit(I2C1, ltc_addr, &reg_addr, 1, 1000000);
 		I2C_Master_Receive(I2C1, ltc_addr, ltc_rx, 16, 1000000);
-		USART2_Transmit(ltc_rx, 16);
-	}
-#endif
+		// USART2_Transmit(ltc_rx, 16);
 
-	uint8_t buf_tx[8]="chujnia",
-			buf_rx[8]={0};
+		v_solar = adc_val[0];
+		v_ismon = adc_val[1];
 
-	uint8_t slave=100;
+		if (11 * v_solar > v_bat + 1)
+		{
+			GPIOC->BSRR |= 1 << 14;
+			bq_balancing(ON);
+		}
+		else
+		{
+			GPIOC->BRR |= 1 << 14;
+			bq_balancing(OFF);
+		}
 
-	while (1)
-	{
-		q_empty();
-		if (!LPUART1_Transmit_Receive(buf_tx, buf_rx, 8, 8, TIMEOUT_1)) continue;
-		memset(buf_tx, 0, 8);
-		if (!I2C_Master_Transmit(I2C1, slave, buf_rx, 8, TIMEOUT_1)) continue;
-		if (!I2C_Master_Receive(I2C1, slave, buf_tx, 8, TIMEOUT_1)) continue;
+		prepare_data(&data, bq_rx, ltc_rx, v_solar, v_bat, v_ismon);
+		send_to_pixhawk(&data);
 	}
 }
 
@@ -701,6 +767,8 @@ void AES_RNG_LPUART1_IRQHandler(void)
 		NVIC_SetPendingIRQ(DMA1_Channel2_3_IRQn);
 	}
 }
+
+
 
 void DMA1_Channel2_3_IRQHandler(void)
 {
