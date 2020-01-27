@@ -5,7 +5,7 @@
 #define TIMEOUT_1 (100U)
 
 /* Private debugging flag */
-//#define DEBUG__ (1U)
+#define DEBUG__ (1U)
 #define SIMPLE__ (1U)
 
 /* FPU guard */
@@ -245,7 +245,6 @@ int dequeue(uint8_t *dest, uint32_t timeout)
 
 
 #if defined(SIMPLE__)
-
 int LPUART1_Transmit_Receive
 (
 		const uint8_t *src,
@@ -273,9 +272,7 @@ int LPUART1_Transmit_Receive
 	if (cr) while(!done && timeout--);
 	return timeout;
 }
-
 #else
-
 int LPUART1_Transmit_Receive
 (
 		const uint8_t *src,
@@ -299,7 +296,6 @@ int LPUART1_Transmit_Receive
 
 	return timeout;
 }
-
 #endif
 
 void I2C1_Init(void)
@@ -391,7 +387,6 @@ int I2C_Master_Receive(
 	return timeout;
 }
 
-
 int I2C_Master_Transmit(
 		I2C_TypeDef *I2C,
 		uint8_t slave_addr,
@@ -426,30 +421,6 @@ int I2C_Master_Transmit(
 	I2C1->ICR |= I2C_ICR_STOPCF;
 	return timeout;
 }
-
-
-void ADC_config(void)
-{
-	RCC->IOPENR |= RCC_IOPENR_IOPAEN;
-	GPIOA->MODER |= GPIO_MODER_MODE0;
-
-	RCC->APB2ENR |= RCC_APB2ENR_ADCEN;
-	ADC1->CHSELR |= ADC_CHSELR_CHSEL0;
-
-	ADC1->CFGR1 |= ADC_CFGR1_CONT;
-	ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;
-	ADC1->CR |= ADC_CR_ADCAL;
-	while (ADC1->CR & ADC_CR_ADCAL);
-
-	ADC1->CR |= ADC_CR_ADEN;
-	if (ADC1->ISR & ADC_ISR_ADRDY) {
-	    ADC1->ISR |= ADC_ISR_ADRDY;
-	}
-    ADC1->CR |= ADC_CR_ADSTART;
-    ADC->CCR |= ADC_CCR_VREFEN;
-    while ((ADC1->ISR & ADC_ISR_ADRDY) == 0) {}
-}
-
 
 void USART_Receive (
 		USART_TypeDef *USART,
@@ -569,6 +540,73 @@ void BQ_Init(void)
 	*/
 }
 
+
+volatile uint16_t adc_val[2]={100, 200};
+
+void ADC_DMA_Init(void)
+{
+	RCC->IOPENR |= RCC_IOPENR_IOPAEN;
+	GPIOA->MODER |= GPIO_MODER_MODE0;
+	GPIOA->MODER |= GPIO_MODER_MODE1;
+
+	RCC->APB2ENR |= RCC_APB2ENR_ADCEN;
+
+	ADC1->CFGR1 |= ADC_CFGR1_CONT;
+	ADC1->SMPR |= ADC_SMPR_SMP;
+	ADC1->CFGR1 |= ADC_CFGR1_OVRMOD;
+
+	ADC1->CHSELR |= ADC_CHSELR_CHSEL0;
+	ADC1->CHSELR |= ADC_CHSELR_CHSEL1;
+
+
+	/* Calibrate */
+
+	/* (1) Ensure that ADEN = 0 */
+	/* (2) Clear ADEN */
+	/* (3) Set ADCAL=1 */
+	/* (4) Wait until EOCAL=1 */
+	/* (5) Clear EOCAL */
+	if ((ADC1->CR & ADC_CR_ADEN) != 0) /* (1) */
+	{
+		ADC1->CR |= ADC_CR_ADDIS; /* (2) */
+	}
+	ADC1->CR |= ADC_CR_ADCAL; /* (3) */
+	while ((ADC1->ISR & ADC_ISR_EOCAL) == 0); /* (4) */
+	ADC1->ISR |= ADC_ISR_EOCAL; /* (5) */
+
+
+	/* Enable ADC */
+	/* (1) Clear the ADRDY bit */
+	/* (2) Enable the ADC */
+	/* (3) Wait until ADC ready */
+	ADC1->ISR |= ADC_ISR_ADRDY; /* (1) */
+	ADC1->CR |= ADC_CR_ADEN; /* (2) */
+	if ((ADC1->CFGR1 & ADC_CFGR1_AUTOFF) == 0)
+	{
+		while ((ADC1->ISR & ADC_ISR_ADRDY) == 0); /* (3) */
+	}
+
+	/* Configure DMA */
+	RCC->AHBENR |= RCC_AHBENR_DMA1EN;
+	DMA1_CSELR->CSELR &= ~DMA_CSELR_C1S;
+
+	DMA1_Channel1->CPAR = (uint32_t)(&(ADC1->DR));
+	DMA1_Channel1->CMAR = (uint32_t)(adc_val);
+	DMA1_Channel1->CNDTR = (0x2U << DMA_CNDTR_NDT_Pos);
+	DMA1_Channel1->CCR |= DMA_CCR_CIRC;
+	DMA1_Channel1->CCR &= ~DMA_CCR_DIR;
+	DMA1_Channel1->CCR |= DMA_CCR_PL;
+	DMA1_Channel1->CCR |= DMA_CCR_PSIZE_0;
+	DMA1_Channel1->CCR |= DMA_CCR_MSIZE_0;
+	DMA1_Channel1->CCR |= DMA_CCR_MINC;
+	DMA1_Channel1->CCR &= ~DMA_CCR_PINC;
+	DMA1_Channel1->CCR |= DMA_CCR_EN;
+
+	/* Start ADC */
+	ADC1->CFGR1 |= ADC_CFGR1_DMAEN | ADC_CFGR1_DMACFG;
+	ADC1->CR |= ADC_CR_ADSTART;
+}
+
 int main(void)
 {
 	RCC->IOPENR |= RCC_IOPENR_IOPBEN;
@@ -588,11 +626,24 @@ int main(void)
 	GPIOC->BSRR |= (1 << 14);
 #endif
 
-	I2C1_Init();
-	DMA_Init(q_buffer);
-	LPUART1_Init();
+	// I2C1_Init();
+	//DMA_Init(q_buffer);
+	//LPUART1_Init();
 	USART2_Init();
-	//USART2_Transmit("chujnik", 8);
+
+	volatile uint8_t msg;
+	volatile uint16_t val0, val1;
+	volatile uint8_t to_send[4];
+	uint32_t timeout = 10000;
+
+	blinked(ADC_DMA_Init();)
+
+	while(1)
+	{
+		delay(50000);
+		USART2_Transmit((uint8_t*)&adc_val[0], 2);
+		USART2_Transmit((uint8_t*)&adc_val[1], 2);
+	}
 
 #if !defined(DEBUG__)
 	BQ_Init();
