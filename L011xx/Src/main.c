@@ -107,17 +107,17 @@ void USART2_Init(void)
 	GPIOB->AFR[0] |= (0x0) << GPIO_AFRL_AFSEL6_Pos;
 	GPIOB->AFR[0] |= (0x0) << GPIO_AFRL_AFSEL7_Pos;
 
+    RCC->CR |= RCC_CR_HSION;
+    while ((RCC->CR & RCC_CR_HSIRDY) == 0);
+	RCC->CCIPR &= ~RCC_CCIPR_USART2SEL;  /* (1) */
+	RCC->CCIPR |= RCC_CCIPR_USART2SEL_1;
 	RCC->APB1ENR |= RCC_APB1ENR_USART2EN;
 
 	USART2->CR3 |= USART_CR3_OVRDIS;
 	uint32_t f_ck, baud;
-	//f_ck = 16000000; // SystemCoreClock;
-	//baud = 9200;
-	f_ck=16000000;
-	baud=9600;
-	USART2->BRR |= f_ck / baud;
-
-	// USART2->CR3 |= USART_CR3_DMAR | USART_CR3_DMAT;
+	f_ck = 2100000;
+	baud = 9600;
+	USART2->BRR = f_ck / baud;
 
 	USART2->CR1 |= USART_CR1_UE;
 	USART2->CR1 |= USART_CR1_RE;
