@@ -5,7 +5,7 @@
 #define TIMEOUT_1 (100U)
 
 /* Private debugging flag */
-#define DEBUG__ (1U)
+// #define DEBUG__ (1U)
 /* Simple / complex USART switch */
 #define SIMPLE__ (1U)
 
@@ -57,6 +57,8 @@ typedef struct {
 	unsigned int charging_i;
 	unsigned int mppt_i;
 	unsigned int accumulator;
+	unsigned int v_bat;
+	unsigned int is_charging;
 } PixhawkFrame;
 
 volatile int dma_stop=0;
@@ -453,7 +455,7 @@ void LTC_Init(void)
 	uint8_t rx_buf[64] = {0};
 
 	uint8_t cmd[] = {0x01, 0xFC};
-	I2C_Master_Transmit(I2C1, ltc_addr, &cmd, 2, 1000000);
+	I2C_Master_Transmit(I2C1, ltc_addr, &cmd, 2, 100000);
 	// I2C_Master_Transmit(I2C1, ltc_addr, &cmd, 1, 1000000);
 
 	/*
@@ -619,11 +621,6 @@ void ADC_DMA_Init(void)
 	ADC1->CR |= ADC_CR_ADSTART;
 }
 
-int how_many_cells(uint8_t *buf)
-{
-	return 0;
-}
-
 void handle_n_cells(int n)
 {
 	switch (n)
@@ -652,9 +649,15 @@ void handle_n_cells(int n)
 
 }
 
-int get_v_bat(uint8_t *buf)
+void get_v_cells(uint8_t *buf, unsigned int *buf_cells)
 {
-	return 0;
+	unsigned int current_cell=0;
+	for (int i=0; i < 6; ++i)
+	{
+		current_cell = buf[4 + 2*i] << 8 | buf[4 + 2*i + 1];
+		if (current_cell * 190 < 2000000) buf_cells[i] = 0;
+		else buf_cells[i] = current_cell;
+	}
 }
 
 void bq_balancing(int state)
@@ -662,14 +665,29 @@ void bq_balancing(int state)
 
 }
 
-void prepare_data(PixhawkFrame *frame, uint8_t *bq_data, uint8_t *ltc_data, uint8_t v_solar, uint8_t v_bat, uint8_t v_ismon)
+void prepare_data(PixhawkFrame *frame, unsigned int *v_cells, uint8_t *ltc_data, unsigned v_solar, unsigned v_bat, unsigned v_ismon)
 {
-
+	frame->accumulator = ltc_data[2] << 8 | ltc_data[3];
+	for (int i =0; i < 6; ++i) frame->cell_vs[i] = v_cells[i];
+	frame->charging_i = ltc_data[14] << 8 | ltc_data[15];
+	frame->mppt_i = v_ismon * 20;
+	frame->solar_v = v_solar * 11;
+	frame->v_bat = v_bat;
 }
 
 void send_to_pixhawk(PixhawkFrame *frame)
 {
-
+	// 6*4 for 6 v cells 4B each, then 6*4 bytes for rest of the data
+	USART2_Transmit(frame, 48);
+	/*
+	USART2_Transmit((uint8_t*)frame->cell_vs, 24);
+	USART2_Transmit((uint8_t*)frame->solar_v, 4);
+	USART2_Transmit((uint8_t*)frame->charging_i, 4);
+	USART2_Transmit((uint8_t*)frame->mppt_i, 4);
+	USART2_Transmit((uint8_t*)frame->accumulator, 4);
+	USART2_Transmit((uint8_t*)frame->v_bat, 4);
+	USART2_Transmit((uint8_t*)frame->is_charging, 4);
+	*/
 }
 
 int main(void)
@@ -704,6 +722,7 @@ int main(void)
 	BQ_Init();
 	LTC_Init();
 
+	unsigned int v_cells[6]={0};
 	uint8_t bq_rx[64] = {0};
 	uint8_t ltc_rx[64] = {0};
 	uint8_t ltc_addr = 0x64 << 1;
@@ -715,20 +734,18 @@ int main(void)
 
 	while(1)
 	{
-		delay(200000);
-		// USART2_Transmit("BQ:", 3);
-		LPUART1_Transmit_Receive(read_6_cells, bq_rx, sizeof(read_6_cells), read_6_cells[4]+1, 250000);
-		// USART2_Transmit(bq_rx, read_6_cells[4]+1);
-		v_bat = get_v_bat(bq_rx);
-		n_cells = how_many_cells(bq_rx);
+		LPUART1_Transmit_Receive(read_6_cells, bq_rx, sizeof(read_6_cells), read_6_cells[4]+1+4+2, 500000);
+		get_v_cells(bq_rx, v_cells);
+
+		for (int i=0; i < 6; ++i) v_bat += v_cells[i];
+		for (int i=0; i < 6; ++i) if (v_cells[i] > 0) n_cells++;
+
 		handle_n_cells(n_cells);
 
 		delay(50000);
 
-		// USART2_Transmit("LTC:", 4);
 		I2C_Master_Transmit(I2C1, ltc_addr, &reg_addr, 1, 1000000);
 		I2C_Master_Receive(I2C1, ltc_addr, ltc_rx, 16, 1000000);
-		// USART2_Transmit(ltc_rx, 16);
 
 		v_solar = adc_val[0];
 		v_ismon = adc_val[1];
@@ -737,14 +754,16 @@ int main(void)
 		{
 			GPIOC->BSRR |= 1 << 14;
 			bq_balancing(ON);
+			data.is_charging = 1;
 		}
 		else
 		{
 			GPIOC->BRR |= 1 << 14;
 			bq_balancing(OFF);
+			data.is_charging = 0;
 		}
 
-		prepare_data(&data, bq_rx, ltc_rx, v_solar, v_bat, v_ismon);
+		prepare_data(&data, v_cells, ltc_rx, v_solar, v_bat, v_ismon);
 		send_to_pixhawk(&data);
 	}
 }
